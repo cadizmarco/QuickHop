@@ -61,7 +61,10 @@ const Index = () => {
             </div>
             <h1 className="text-2xl font-bold">QuickHop</h1>
           </div>
-          <Button onClick={() => navigate('/login')}>Get Started</Button>
+          <div className="flex gap-4">
+            <Button variant="ghost" onClick={() => navigate('/track')}>Track Order</Button>
+            <Button onClick={() => navigate('/login')}>Get Started</Button>
+          </div>
         </div>
       </header>
 
@@ -73,9 +76,14 @@ const Index = () => {
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
             Track your parcels from pickup to delivery with live map updates and multiple drop-off support
           </p>
-          <Button size="lg" onClick={() => navigate('/login')} className="mt-6">
-            Start Tracking Now
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center mt-6">
+            <Button size="lg" onClick={() => navigate('/signup/rider')} variant="default">
+              Sign Up as Rider
+            </Button>
+            <Button size="lg" onClick={() => navigate('/signup/business')} variant="outline">
+              Sign Up as Business Owner
+            </Button>
+          </div>
         </section>
 
         <section className="space-y-8">

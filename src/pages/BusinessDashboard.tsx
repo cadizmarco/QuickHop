@@ -1,38 +1,76 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogOut, Package, Plus, MapPin, Eye, EyeOff, Navigation, X } from 'lucide-react';
+import { LogOut, Package, Plus, MapPin, Eye, EyeOff, Navigation, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { RouteViewer } from '@/components/RouteViewer';
 import { toast } from 'sonner';
+import { createDelivery, createDeliveryRequest, getDeliveriesByBusiness, subscribeToDeliveries, type DeliveryWithDropOffs } from '@/lib/deliveryService';
 
 interface DropOffInput {
   id: string;
   customerName: string;
   customerPhone: string;
+  customerEmail: string;
   address: string;
 }
 
 export default function BusinessDashboard() {
-  const { user, logout } = useAuth();
+  const { user, logout, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [expandedDelivery, setExpandedDelivery] = useState<string | null>(null);
-  
+
+  // Data State
+  const [deliveries, setDeliveries] = useState<DeliveryWithDropOffs[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+
   // New Delivery Form State
   const [pickupAddress, setPickupAddress] = useState('');
   const [dropOffs, setDropOffs] = useState<DropOffInput[]>([
-    { id: '1', customerName: '', customerPhone: '', address: '' },
-    { id: '2', customerName: '', customerPhone: '', address: '' },
+    { id: '1', customerName: '', customerPhone: '', customerEmail: '', address: '' },
+    { id: '2', customerName: '', customerPhone: '', customerEmail: '', address: '' },
   ]);
   const [scheduledDate, setScheduledDate] = useState('');
   const [notes, setNotes] = useState('');
   const [showRoutePreview, setShowRoutePreview] = useState(false);
+
+  // Fetch deliveries on mount
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const fetchDeliveries = async () => {
+      try {
+        setLoading(true);
+        const data = await getDeliveriesByBusiness(user.id);
+        setDeliveries(data);
+      } catch (error) {
+        console.error('Error fetching deliveries:', error);
+        toast.error('Failed to load deliveries');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDeliveries();
+
+    // Subscribe to real-time updates
+    const unsubscribe = subscribeToDeliveries(user.id, (payload) => {
+      console.log('Delivery updated:', payload);
+      // Refetch deliveries when changes occur
+      fetchDeliveries();
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.id]);
 
   const handleLogout = () => {
     logout();
@@ -40,11 +78,12 @@ export default function BusinessDashboard() {
   };
 
   const addDropOff = () => {
-    setDropOffs([...dropOffs, { 
-      id: Date.now().toString(), 
-      customerName: '', 
-      customerPhone: '', 
-      address: '' 
+    setDropOffs([...dropOffs, {
+      id: Date.now().toString(),
+      customerName: '',
+      customerPhone: '',
+      customerEmail: '',
+      address: ''
     }]);
   };
 
@@ -55,7 +94,7 @@ export default function BusinessDashboard() {
   };
 
   const updateDropOff = (id: string, field: keyof DropOffInput, value: string) => {
-    setDropOffs(dropOffs.map(d => 
+    setDropOffs(dropOffs.map(d =>
       d.id === id ? { ...d, [field]: value } : d
     ));
   };
@@ -69,112 +108,80 @@ export default function BusinessDashboard() {
   };
 
   const handleCreateDelivery = async () => {
+    if (!user) {
+      toast.error('You must be logged in to create deliveries');
+      return;
+    }
+
     if (!pickupAddress || !dropOffs[0].address || !dropOffs[0].customerName) {
       toast.error('Please fill in required fields (pickup address and at least one drop-off)');
       return;
     }
-    
-    // Simulate loading state
-    toast.loading('Creating delivery...');
-    
-    // In real implementation, this would be an API call:
-    // const response = await fetch('/api/deliveries', {
-    //   method: 'POST',
-    //   body: JSON.stringify({
-    //     businessId: user.id,
-    //     businessName: user.name,
-    //     pickupAddress: pickupAddress,
-    //     dropOffs: dropOffs.filter(d => d.address && d.customerName),
-    //     scheduledDate: scheduledDate,
-    //     notes: notes,
-    //     status: 'pending'
-    //   })
-    // });
-    // const delivery = await response.json();
-    
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    // Simulate delivery creation and assignment
-    const newDeliveryId = `DEL-${Math.floor(Math.random() * 10000).toString().padStart(3, '0')}`;
-    const customerCount = dropOffs.filter(d => d.address && d.customerName).length;
-    
-    // Backend would:
-    // 1. Create delivery record in database
-    // 2. Find available rider and assign
-    // 3. Send notifications to rider
-    // 4. Send notifications to all customers involved
-    
-    toast.dismiss();
-    toast.success(
-      <div className="space-y-1">
-        <p className="font-semibold">Delivery Created! #{newDeliveryId}</p>
-        <p className="text-xs">✅ Assigned to available rider</p>
-        <p className="text-xs">✅ {customerCount} customer{customerCount > 1 ? 's' : ''} notified</p>
-        <p className="text-xs">📍 Route shared with all parties</p>
-      </div>,
-      { duration: 5000 }
-    );
-    
-    // Reset form
-    setIsDialogOpen(false);
-    setPickupAddress('');
-    setDropOffs([
-      { id: '1', customerName: '', customerPhone: '', address: '' },
-      { id: '2', customerName: '', customerPhone: '', address: '' },
-    ]);
-    setScheduledDate('');
-    setNotes('');
-    setShowRoutePreview(false);
-    
-    // In real app, this would trigger a refetch of deliveries list
-    // to show the newly created delivery
+
+    setCreating(true);
+    const toastId = toast.loading('Creating delivery...');
+
+    try {
+      const validDropOffs = dropOffs.filter(d => d.address && d.customerName);
+
+      const newDelivery = await createDelivery(
+        user.id,
+        user.name,
+        {
+          pickupAddress,
+          dropOffs: validDropOffs,
+          scheduledFor: scheduledDate || undefined,
+          notes: notes || undefined,
+        }
+      );
+
+      // Create delivery request to broadcast to riders
+      await createDeliveryRequest(newDelivery.id);
+
+      toast.success(
+        <div className="space-y-1">
+          <p className="font-semibold">Delivery Created! #{newDelivery.id.substring(0, 8)}</p>
+          <p className="text-xs">✅ {validDropOffs.length} drop-off location{validDropOffs.length > 1 ? 's' : ''} added</p>
+          <p className="text-xs">📡 Broadcasting to available riders...</p>
+        </div>,
+        { id: toastId, duration: 5000 }
+      );
+
+      // Reset form
+      setIsDialogOpen(false);
+      setPickupAddress('');
+      setDropOffs([
+        { id: '1', customerName: '', customerPhone: '', customerEmail: '', address: '' },
+        { id: '2', customerName: '', customerPhone: '', customerEmail: '', address: '' },
+      ]);
+      setScheduledDate('');
+      setNotes('');
+      setShowRoutePreview(false);
+
+      // Refresh deliveries list
+      const updatedDeliveries = await getDeliveriesByBusiness(user.id);
+      setDeliveries(updatedDeliveries);
+    } catch (error: any) {
+      console.error('Error creating delivery:', error);
+      toast.error(error.message || 'Failed to create delivery', { id: toastId });
+    } finally {
+      setCreating(false);
+    }
   };
 
   const toggleDeliveryView = (deliveryId: string) => {
     setExpandedDelivery(expandedDelivery === deliveryId ? null : deliveryId);
   };
 
-  // Mock deliveries with detailed information
-  const deliveries = [
-    { 
-      id: 'DEL-001', 
-      status: 'in_transit', 
-      date: '2024-01-15',
-      pickupAddress: '123 Business St, Manila',
-      riderName: 'Juan Dela Cruz',
-      dropOffs: [
-        { name: 'John Doe', address: '456 Home Ave, Quezon City', phone: '+63 912 345 6789' },
-        { name: 'Jane Smith', address: '789 Apartment Rd, Makati', phone: '+63 912 345 6790' },
-        { name: 'Bob Johnson', address: '321 Condo Blvd, Taguig', phone: '+63 912 345 6791' },
-      ]
-    },
-    { 
-      id: 'DEL-002', 
-      status: 'pending',
-      date: '2024-01-15',
-      pickupAddress: '123 Business St, Manila',
-      riderName: null,
-      dropOffs: [
-        { name: 'Alice Wong', address: '555 Street Ave, Pasig', phone: '+63 912 345 6792' },
-        { name: 'Carlos Garcia', address: '777 Road St, Mandaluyong', phone: '+63 912 345 6793' },
-        { name: 'Diana Lopez', address: '888 Lane Rd, San Juan', phone: '+63 912 345 6794' },
-        { name: 'Eric Santos', address: '999 Drive Blvd, Caloocan', phone: '+63 912 345 6795' },
-        { name: 'Fiona Reyes', address: '111 Path St, Valenzuela', phone: '+63 912 345 6796' },
-      ]
-    },
-    { 
-      id: 'DEL-003', 
-      status: 'delivered',
-      date: '2024-01-14',
-      pickupAddress: '123 Business St, Manila',
-      riderName: 'Maria Santos',
-      dropOffs: [
-        { name: 'George Cruz', address: '222 Avenue Rd, Malabon', phone: '+63 912 345 6797' },
-        { name: 'Helen Tan', address: '333 Boulevard St, Navotas', phone: '+63 912 345 6798' },
-      ]
-    },
-  ];
+  const handleLogoutAsync = async () => {
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      toast.error('Failed to logout');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -189,7 +196,7 @@ export default function BusinessDashboard() {
               <p className="text-sm text-muted-foreground">{user?.name}</p>
             </div>
           </div>
-          <Button variant="outline" onClick={handleLogout}>
+          <Button variant="outline" onClick={handleLogoutAsync}>
             <LogOut className="w-4 h-4 mr-2" />
             Logout
           </Button>
@@ -223,8 +230,8 @@ export default function BusinessDashboard() {
                     <MapPin className="w-4 h-4 text-primary" />
                     Pickup Address <span className="text-destructive">*</span>
                   </Label>
-                  <Input 
-                    placeholder="Enter your business/pickup location (e.g., 123 Business St, Manila)" 
+                  <Input
+                    placeholder="Enter your business/pickup location (e.g., 123 Business St, Manila)"
                     value={pickupAddress}
                     onChange={(e) => setPickupAddress(e.target.value)}
                   />
@@ -242,8 +249,8 @@ export default function BusinessDashboard() {
                         <div className="flex items-center justify-between">
                           <h4 className="text-sm font-semibold">Drop-off {idx + 1}</h4>
                           {dropOffs.length > 1 && (
-                            <Button 
-                              variant="ghost" 
+                            <Button
+                              variant="ghost"
                               size="sm"
                               onClick={() => removeDropOff(dropOff.id)}
                             >
@@ -254,25 +261,35 @@ export default function BusinessDashboard() {
                         <div className="grid gap-3 sm:grid-cols-2">
                           <div className="space-y-1">
                             <Label className="text-xs">Customer Name {idx === 0 && <span className="text-destructive">*</span>}</Label>
-                            <Input 
-                              placeholder="John Doe" 
+                            <Input
+                              placeholder="John Doe"
                               value={dropOff.customerName}
                               onChange={(e) => updateDropOff(dropOff.id, 'customerName', e.target.value)}
                             />
                           </div>
                           <div className="space-y-1">
                             <Label className="text-xs">Customer Phone</Label>
-                            <Input 
-                              placeholder="+63 912 345 6789" 
+                            <Input
+                              placeholder="+63 912 345 6789"
                               value={dropOff.customerPhone}
                               onChange={(e) => updateDropOff(dropOff.id, 'customerPhone', e.target.value)}
                             />
                           </div>
                         </div>
                         <div className="space-y-1">
+                          <Label className="text-xs">Customer Email</Label>
+                          <Input
+                            type="email"
+                            placeholder="customer@example.com"
+                            value={dropOff.customerEmail}
+                            onChange={(e) => updateDropOff(dropOff.id, 'customerEmail', e.target.value)}
+                          />
+                          <p className="text-xs text-muted-foreground">Tracking number will be sent to this email</p>
+                        </div>
+                        <div className="space-y-1">
                           <Label className="text-xs">Delivery Address {idx === 0 && <span className="text-destructive">*</span>}</Label>
-                          <Input 
-                            placeholder="456 Customer St, Quezon City" 
+                          <Input
+                            placeholder="456 Customer St, Quezon City"
                             value={dropOff.address}
                             onChange={(e) => updateDropOff(dropOff.id, 'address', e.target.value)}
                           />
@@ -305,8 +322,8 @@ export default function BusinessDashboard() {
                 )}
 
                 {!showRoutePreview && (
-                  <Button 
-                    variant="secondary" 
+                  <Button
+                    variant="secondary"
                     className="w-full"
                     onClick={handlePreviewRoute}
                   >
@@ -319,26 +336,26 @@ export default function BusinessDashboard() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Scheduled Date & Time</Label>
-                    <Input 
-                      type="datetime-local" 
+                    <Input
+                      type="datetime-local"
                       value={scheduledDate}
                       onChange={(e) => setScheduledDate(e.target.value)}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>Notes (Optional)</Label>
-                    <Input 
-                      placeholder="Special instructions" 
+                    <Input
+                      placeholder="Special instructions"
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                     />
                   </div>
                 </div>
               </div>
-              
+
               <div className="flex gap-2">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   className="flex-1"
                   onClick={() => {
                     setIsDialogOpen(false);
@@ -347,117 +364,135 @@ export default function BusinessDashboard() {
                 >
                   Cancel
                 </Button>
-                <Button onClick={handleCreateDelivery} className="flex-1">
-                  <Package className="w-4 h-4 mr-2" />
-                  Create Booking
+                <Button onClick={handleCreateDelivery} className="flex-1" disabled={creating}>
+                  {creating ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating...</>
+                  ) : (
+                    <><Package className="w-4 h-4 mr-2" /> Create Booking</>
+                  )}
                 </Button>
               </div>
             </DialogContent>
           </Dialog>
         </div>
 
-        <div className="grid gap-4">
-          {deliveries.map((delivery) => (
-            <Card key={delivery.id}>
-              <CardHeader>
-                <div className="flex items-center justify-between">
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : deliveries.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <Package className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No deliveries yet</h3>
+              <p className="text-muted-foreground mb-4">Create your first delivery to get started</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4">
+            {deliveries.map((delivery) => (
+              <Card key={delivery.id}>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-lg">Delivery #{delivery.id.substring(0, 8)}</CardTitle>
+                      <CardDescription>{new Date(delivery.created_at).toLocaleDateString()}</CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        className={
+                          delivery.status === 'delivered' ? 'bg-success' :
+                            delivery.status === 'in_transit' || delivery.status === 'picked_up' ? 'bg-warning' :
+                              delivery.status === 'assigned' ? 'bg-blue-500' :
+                                'bg-muted'
+                        }
+                      >
+                        {delivery.status === 'pending' ? 'PENDING RIDER ACCEPTANCE' : delivery.status.replace('_', ' ').toUpperCase()}
+                      </Badge>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => toggleDeliveryView(delivery.id)}
+                      >
+                        {expandedDelivery === delivery.id ? (
+                          <>
+                            <EyeOff className="w-4 h-4 mr-2" />
+                            Hide Details
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-4 h-4 mr-2" />
+                            View Details
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-start gap-3">
+                    <MapPin className="w-5 h-5 text-primary mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium">Pickup Location</p>
+                      <p className="text-sm text-muted-foreground">{delivery.pickup_address}</p>
+                    </div>
+                  </div>
                   <div>
-                    <CardTitle className="text-lg">Delivery #{delivery.id}</CardTitle>
-                    <CardDescription>{delivery.date}</CardDescription>
+                    <p className="text-sm text-muted-foreground">
+                      {delivery.drop_offs.length} drop-off location{delivery.drop_offs.length > 1 ? 's' : ''}
+                      {delivery.rider_name && ` • Rider: ${delivery.rider_name}`}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge 
-                      className={
-                        delivery.status === 'delivered' ? 'bg-success' :
-                        delivery.status === 'in_transit' ? 'bg-warning' :
-                        'bg-muted'
-                      }
-                    >
-                      {delivery.status.replace('_', ' ').toUpperCase()}
-                    </Badge>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => toggleDeliveryView(delivery.id)}
-                    >
-                      {expandedDelivery === delivery.id ? (
-                        <>
-                          <EyeOff className="w-4 h-4 mr-2" />
-                          Hide Details
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="w-4 h-4 mr-2" />
-                          View Details
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <MapPin className="w-5 h-5 text-primary mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium">Pickup Location</p>
-                    <p className="text-sm text-muted-foreground">{delivery.pickupAddress}</p>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">
-                    {delivery.dropOffs.length} drop-off location{delivery.dropOffs.length > 1 ? 's' : ''}
-                    {delivery.riderName && ` • Rider: ${delivery.riderName}`}
-                  </p>
-                </div>
 
-                {/* Expanded View */}
-                {expandedDelivery === delivery.id && (
-                  <div className="space-y-4 pt-4 border-t">
-                    {/* Drop-off List */}
-                    <div className="space-y-2">
-                      <h4 className="text-sm font-semibold flex items-center gap-2">
-                        <Navigation className="w-4 h-4" />
-                        Drop-off Locations
-                      </h4>
-                      {delivery.dropOffs.map((dropOff, idx) => (
-                        <div key={idx} className="p-3 bg-muted/50 rounded-lg">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1">
-                              <p className="text-sm font-medium">
-                                {idx + 1}. {dropOff.name}
-                              </p>
-                              <p className="text-xs text-muted-foreground">{dropOff.address}</p>
-                              <p className="text-xs text-muted-foreground">{dropOff.phone}</p>
+                  {/* Expanded View */}
+                  {expandedDelivery === delivery.id && (
+                    <div className="space-y-4 pt-4 border-t">
+                      {/* Drop-off List */}
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-semibold flex items-center gap-2">
+                          <Navigation className="w-4 h-4" />
+                          Drop-off Locations
+                        </h4>
+                        {delivery.drop_offs.map((dropOff, idx) => (
+                          <div key={dropOff.id} className="p-3 bg-muted/50 rounded-lg">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1">
+                                <p className="text-sm font-medium">
+                                  {idx + 1}. {dropOff.customer_name}
+                                </p>
+                                <p className="text-xs text-muted-foreground">{dropOff.address}</p>
+                                <p className="text-xs text-muted-foreground">{dropOff.customer_phone}</p>
+                              </div>
+                              <Badge variant="outline" className="text-xs">
+                                {dropOff.status}
+                              </Badge>
                             </div>
-                            <Badge variant="outline" className="text-xs">
-                              Stop {idx + 1}
-                            </Badge>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Route Map */}
-                    <div className="space-y-2">
-                      <h4 className="text-sm font-semibold">Complete Route Overview</h4>
-                      <div className="h-[400px]">
-                        <RouteViewer
-                          startLocation={delivery.pickupAddress}
-                          endLocation={delivery.dropOffs[delivery.dropOffs.length - 1].address}
-                          waypoints={delivery.dropOffs.slice(0, -1).map(d => d.address)}
-                          showMap={true}
-                        />
+                        ))}
                       </div>
-                      <p className="text-xs text-muted-foreground text-center">
-                        🚀 Optimized route through all {delivery.dropOffs.length} drop-off locations • Fastest path highlighted
-                      </p>
+
+                      {/* Route Map */}
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-semibold">Complete Route Overview</h4>
+                        <div className="h-[400px]">
+                          <RouteViewer
+                            startLocation={delivery.pickup_address}
+                            endLocation={delivery.drop_offs[delivery.drop_offs.length - 1].address}
+                            waypoints={delivery.drop_offs.slice(0, -1).map(d => d.address)}
+                            showMap={true}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground text-center">
+                          🚀 Optimized route through all {delivery.drop_offs.length} drop-off locations • Fastest path highlighted
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
       </main>
     </div>
   );
