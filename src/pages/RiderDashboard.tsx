@@ -2,20 +2,45 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { GoogleMapComponent } from '@/components/GoogleMapComponent';
+import { RouteViewer } from '@/components/RouteViewer';
 import { LogOut, Package, MapPin, CheckCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { useState } from 'react';
 
 export default function RiderDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [currentDropOffIndex, setCurrentDropOffIndex] = useState(0);
 
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
 
-  // Mock active delivery
+  // ============================================
+  // BACKEND INTEGRATION POINT - Rider receives assigned delivery
+  // ============================================
+  // In real implementation, this would fetch from API:
+  // useEffect(() => {
+  //   async function fetchActiveDelivery() {
+  //     const response = await fetch(`/api/riders/${user.id}/deliveries/active`);
+  //     const data = await response.json();
+  //     setActiveDelivery(data.activeDelivery);
+  //   }
+  //   fetchActiveDelivery();
+  //   const interval = setInterval(fetchActiveDelivery, 30000); // Poll every 30s
+  //   return () => clearInterval(interval);
+  // }, [user.id]);
+  //
+  // The backend automatically assigns this delivery when business creates it:
+  // 1. Business creates delivery with pickup + multiple drop-offs
+  // 2. Backend finds available rider (this user)
+  // 3. Backend assigns delivery to rider
+  // 4. Rider receives notification
+  // 5. Delivery appears here with complete route information
+  // ============================================
+
+  // Mock active delivery - This represents data received from backend
   const activeDelivery = {
     id: 'DEL-001',
     businessName: 'ABC Store',
@@ -24,6 +49,47 @@ export default function RiderDashboard() {
       { name: 'John Doe', address: '456 Home Ave, Quezon City', status: 'pending' },
       { name: 'Jane Smith', address: '789 Apartment Rd, Makati', status: 'pending' },
     ],
+  };
+
+  // Determine the current route with all remaining waypoints
+  const getCurrentRoute = () => {
+    const pendingDropOffs = activeDelivery.dropOffs.filter(d => d.status === 'pending');
+    
+    if (pendingDropOffs.length === activeDelivery.dropOffs.length) {
+      // All pending, show complete route from pickup through all drop-offs
+      return {
+        from: activeDelivery.pickupAddress,
+        to: activeDelivery.dropOffs[activeDelivery.dropOffs.length - 1].address,
+        waypoints: activeDelivery.dropOffs.slice(0, -1).map(d => d.address),
+      };
+    } else if (pendingDropOffs.length > 0) {
+      // Some delivered, show route from current location through remaining drop-offs
+      const lastDeliveredIndex = activeDelivery.dropOffs.findLastIndex(d => d.status !== 'pending');
+      const nextPendingIndex = lastDeliveredIndex + 1;
+      const remainingDropOffs = activeDelivery.dropOffs.slice(nextPendingIndex);
+      
+      return {
+        from: activeDelivery.dropOffs[lastDeliveredIndex]?.address || activeDelivery.pickupAddress,
+        to: remainingDropOffs[remainingDropOffs.length - 1].address,
+        waypoints: remainingDropOffs.slice(0, -1).map(d => d.address),
+      };
+    }
+    
+    // All delivered, show complete route for reference
+    return {
+      from: activeDelivery.pickupAddress,
+      to: activeDelivery.dropOffs[activeDelivery.dropOffs.length - 1].address,
+      waypoints: activeDelivery.dropOffs.slice(0, -1).map(d => d.address),
+    };
+  };
+
+  const currentRoute = getCurrentRoute();
+  const pendingCount = activeDelivery.dropOffs.filter(d => d.status === 'pending').length;
+
+  const handleMarkDelivered = (index: number) => {
+    // In real implementation, this would update the delivery status
+    console.log(`Marking drop-off ${index} as delivered`);
+    setCurrentDropOffIndex(index + 1);
   };
 
   return (
@@ -75,9 +141,13 @@ export default function RiderDashboard() {
                     <p className="text-sm font-medium">Drop-off {idx + 1}: {dropOff.name}</p>
                     <p className="text-sm text-muted-foreground">{dropOff.address}</p>
                   </div>
-                  <Button size="sm" variant="outline">
-                    Mark Delivered
-                  </Button>
+                  {dropOff.status === 'pending' ? (
+                    <Button size="sm" variant="outline" onClick={() => handleMarkDelivered(idx)}>
+                      Mark Delivered
+                    </Button>
+                  ) : (
+                    <CheckCircle className="w-5 h-5 text-success" />
+                  )}
                 </div>
               ))}
             </div>
@@ -87,13 +157,19 @@ export default function RiderDashboard() {
         <Card>
           <CardHeader>
             <CardTitle>Route Navigation</CardTitle>
-            <CardDescription>Follow the optimized route to all drop-off locations</CardDescription>
+            <CardDescription>
+              {pendingCount > 0 
+                ? `Optimized route through remaining ${pendingCount} stop${pendingCount > 1 ? 's' : ''}`
+                : 'All deliveries completed!'}
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[500px] rounded-lg overflow-hidden">
-              <GoogleMapComponent 
-                apiKey=""
-                showRoute
+            <div className="h-[500px]">
+              <RouteViewer
+                startLocation={currentRoute.from}
+                endLocation={currentRoute.to}
+                waypoints={currentRoute.waypoints}
+                showMap={true}
               />
             </div>
           </CardContent>

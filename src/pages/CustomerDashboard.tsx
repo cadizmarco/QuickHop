@@ -2,7 +2,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { GoogleMapComponent } from '@/components/GoogleMapComponent';
+import { RouteViewer } from '@/components/RouteViewer';
 import { LogOut, Package, MapPin, Clock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -15,10 +15,38 @@ export default function CustomerDashboard() {
     navigate('/login');
   };
 
-  // Mock delivery data
+  // ============================================
+  // BACKEND INTEGRATION POINT - Customer receives delivery info
+  // ============================================
+  // In real implementation, this would fetch from API:
+  // useEffect(() => {
+  //   async function fetchDelivery() {
+  //     // Option 1: Track by phone (no login required)
+  //     const response = await fetch(`/api/deliveries/track?phone=${user.phone}`);
+  //     // Option 2: Track by authenticated user
+  //     // const response = await fetch(`/api/customers/${user.id}/deliveries/active`);
+  //     
+  //     const data = await response.json();
+  //     setDelivery(data.delivery);
+  //   }
+  //   fetchDelivery();
+  //   const interval = setInterval(fetchDelivery, 15000); // Poll every 15s for real-time tracking
+  //   return () => clearInterval(interval);
+  // }, [user.phone]);
+  //
+  // The customer receives this data automatically when:
+  // 1. Business creates delivery and includes customer info in drop-offs
+  // 2. Backend creates customer notification record
+  // 3. Customer receives SMS/Email with tracking link
+  // 4. Customer can track delivery using phone number
+  // 5. Shows their specific delivery address and route from business
+  // ============================================
+
+  // Mock delivery data - This represents data received from backend
   const delivery = {
     id: 'DEL-001',
     status: 'in_transit',
+    businessName: 'ABC Store',
     pickupAddress: '123 Business St, Manila',
     deliveryAddress: '456 Home Ave, Quezon City',
     estimatedArrival: '2:30 PM',
@@ -51,7 +79,7 @@ export default function CustomerDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>Delivery #{delivery.id}</CardTitle>
-                <CardDescription>Track your parcel in real-time</CardDescription>
+                <CardDescription>From {delivery.businessName} - Track your parcel in real-time</CardDescription>
               </div>
               <Badge className="bg-warning text-warning-foreground">
                 {delivery.status.replace('_', ' ').toUpperCase()}
@@ -70,7 +98,7 @@ export default function CustomerDashboard() {
               <div className="flex items-start gap-3">
                 <MapPin className="w-5 h-5 text-secondary mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium">Delivery Address</p>
+                  <p className="text-sm font-medium">Your Delivery Address</p>
                   <p className="text-sm text-muted-foreground">{delivery.deliveryAddress}</p>
                 </div>
               </div>
@@ -85,20 +113,13 @@ export default function CustomerDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Live Tracking</CardTitle>
-            <CardDescription>Follow your rider: {delivery.riderName}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[500px] rounded-lg overflow-hidden">
-              <GoogleMapComponent 
-                apiKey=""
-                showRoute
-              />
-            </div>
-          </CardContent>
-        </Card>
+        <div className="h-[500px]">
+          <RouteViewer
+            startLocation={delivery.pickupAddress}
+            endLocation={delivery.deliveryAddress}
+            showMap={true}
+          />
+        </div>
       </main>
     </div>
   );
