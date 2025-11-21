@@ -109,31 +109,10 @@ export default function Login() {
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t" />
               </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">Test Accounts</span>
-              </div>
+              
             </div>
 
-            <div className="space-y-2 text-xs">
-              <p className="text-muted-foreground font-semibold">Use these accounts for testing:</p>
-              <div className="grid gap-1">
-                <p className="font-mono">
-                  <span className="text-muted-foreground">Business:</span> business@quickhop.com
-                </p>
-                <p className="font-mono">
-                  <span className="text-muted-foreground">Rider:</span> rider@quickhop.com
-                </p>
-                <p className="font-mono">
-                  <span className="text-muted-foreground">Customer:</span> customer@quickhop.com
-                </p>
-                <p className="font-mono">
-                  <span className="text-muted-foreground">Admin:</span> admin@quickhop.com
-                </p>
-                <p className="text-muted-foreground mt-2">
-                  Password for all accounts: <span className="font-mono">password123</span>
-                </p>
-              </div>
-            </div>
+        
 
             <p className="text-xs text-center text-muted-foreground pt-2 border-t">
               Your role is determined by your account. If you don't have an account, please contact an administrator.

@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { MapPin, Truck, User, Building2, Search, Phone, Mail, Clock, Package, Navigation } from 'lucide-react';
-import { trackDeliveryByTrackingNumber } from '@/lib/deliveryService';
+import { trackDeliveryByTrackingNumber, subscribeToDropOffs } from '@/lib/deliveryService';
+import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { RouteViewer } from '@/components/RouteViewer';
 
@@ -34,6 +35,79 @@ const TrackOrder = () => {
             setLoading(false);
         }
     };
+
+    // Subscribe to real-time updates for the tracked delivery
+    useEffect(() => {
+        if (!trackingData?.delivery?.id || !trackingData?.dropOff?.id) return;
+
+        console.log('Setting up real-time subscription for delivery:', trackingData.delivery.id);
+
+        // Subscribe to drop-off changes
+        const unsubscribeDropOffs = subscribeToDropOffs(trackingData.delivery.id, async (payload) => {
+            console.log('Drop-off update received:', payload);
+            
+            // Refresh tracking data when drop-off status changes
+            try {
+                const updatedData = await trackDeliveryByTrackingNumber(trackingNumber);
+                if (updatedData) {
+                    setTrackingData(updatedData);
+                    
+                    // Show notification for status changes
+                    if (payload.eventType === 'UPDATE' && payload.new.status !== payload.old.status) {
+                        const statusMessages: Record<string, string> = {
+                            'picked_up': '🚚 Rider has picked up your order!',
+                            'in_transit': '📦 Your order is in transit!',
+                            'delivered': '✅ Your order has been delivered!',
+                        };
+                        
+                        const message = statusMessages[payload.new.status];
+                        if (message) {
+                            toast.success(message, { duration: 5000 });
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error refreshing tracking data:', error);
+            }
+        });
+
+        // Subscribe to delivery changes (for rider assignment, status changes)
+        const deliveryChannel = supabase
+            .channel(`delivery-${trackingData.delivery.id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'deliveries',
+                    filter: `id=eq.${trackingData.delivery.id}`,
+                },
+                async (payload) => {
+                    console.log('Delivery update received:', payload);
+                    
+                    // Refresh tracking data when delivery changes
+                    try {
+                        const updatedData = await trackDeliveryByTrackingNumber(trackingNumber);
+                        if (updatedData) {
+                            setTrackingData(updatedData);
+                            
+                            // Show notification for rider assignment
+                            if (payload.eventType === 'UPDATE' && payload.new.rider_id && !payload.old.rider_id) {
+                                toast.info('🚴 Rider assigned to your delivery!', { duration: 5000 });
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error refreshing tracking data:', error);
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            unsubscribeDropOffs();
+            supabase.removeChannel(deliveryChannel);
+        };
+    }, [trackingData?.delivery?.id, trackingData?.dropOff?.id, trackingNumber]);
 
     const getStatusColor = (status: string) => {
         switch (status) {

@@ -563,7 +563,15 @@ export function subscribeToDeliveryRequests(callback: (payload: any) => void) {
                 table: 'delivery_requests',
                 filter: 'status=eq.pending_acceptance',
             },
-            callback
+            (payload) => {
+                // Transform payload to match expected structure
+                const transformedPayload = {
+                    eventType: payload.eventType,
+                    new: payload.new,
+                    old: payload.old,
+                };
+                callback(transformedPayload);
+            }
         )
         .subscribe();
 

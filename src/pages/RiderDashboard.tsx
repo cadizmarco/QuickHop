@@ -117,20 +117,40 @@ export default function RiderDashboard() {
     fetchRequestsAndAvailability();
 
     // Subscribe to real-time delivery request updates
-    const unsubscribe = subscribeToDeliveryRequests((payload) => {
+    const unsubscribe = subscribeToDeliveryRequests(async (payload) => {
       console.log('Delivery request update:', payload);
 
       if (payload.eventType === 'INSERT' && isAvailable) {
-        // New delivery request, add to list
-        setDeliveryRequests(prev => [payload.new, ...prev]);
-
-        // Show notification
-        toast.info('🚚 New delivery available!', {
-          description: `From ${payload.new.deliveries?.business_name || 'Business'}`,
-          duration: 5000,
-        });
-      } else if (payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
-        // Request was accepted or cancelled, remove from list
+        // New delivery request created - fetch full details and add to list
+        try {
+          const requests = await getPendingDeliveryRequests();
+          setDeliveryRequests(requests || []);
+          
+          // Show notification with delivery details
+          const newRequest = requests?.find(r => r.id === payload.new.id);
+          if (newRequest) {
+            toast.info('🚚 New delivery available!', {
+              description: `From ${newRequest.deliveries?.business_name || 'Business'}`,
+              duration: 5000,
+            });
+          }
+        } catch (error) {
+          console.error('Error fetching new delivery request:', error);
+        }
+      } else if (payload.eventType === 'UPDATE') {
+        // Request was accepted or status changed, refresh the list
+        if (isAvailable) {
+          try {
+            const requests = await getPendingDeliveryRequests();
+            setDeliveryRequests(requests || []);
+          } catch (error) {
+            console.error('Error refreshing delivery requests:', error);
+          }
+        } else {
+          setDeliveryRequests([]);
+        }
+      } else if (payload.eventType === 'DELETE') {
+        // Request was deleted, remove from list
         setDeliveryRequests(prev => prev.filter(req => req.id !== payload.old.id));
       }
     });

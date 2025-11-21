@@ -38,21 +38,32 @@ export default function Signup({ role }: SignupProps) {
                         role: role,
                         phone: formData.phone,
                     },
+                    // Auto-confirm email for riders and business owners
+                    emailRedirectTo: undefined,
                 },
             });
 
             if (error) throw error;
 
-            if (data.session) {
-                toast.success('Account created successfully!');
-                navigate(role === 'rider' ? '/rider' : '/business');
-            } else {
-                // Email confirmation required
-                toast.success('Account created! Please check your email to confirm your account.', {
-                    duration: 6000,
-                });
-                navigate('/login');
-            }
+            // For riders and business owners, email is auto-verified via database trigger
+            // Wait a moment for the trigger to process, then check for session
+            setTimeout(async () => {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session) {
+                    toast.success('Account created successfully!');
+                    navigate(role === 'rider' ? '/rider' : '/business');
+                } else if (data.session) {
+                    // Session was already available
+                    toast.success('Account created successfully!');
+                    navigate(role === 'rider' ? '/rider' : '/business');
+                } else {
+                    // Fallback: email confirmation might still be required
+                    toast.success('Account created! Please check your email to confirm your account.', {
+                        duration: 6000,
+                    });
+                    navigate('/login');
+                }
+            }, 500);
         } catch (error: any) {
             console.error('Signup error:', error);
             toast.error(error.message || 'Failed to create account');
