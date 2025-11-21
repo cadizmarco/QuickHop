@@ -500,13 +500,13 @@ export async function acceptDeliveryRequest(deliveryRequestId: string, riderId: 
 
         if (updateRequestError) throw updateRequestError;
 
-        // 6. Assign delivery to rider
+        // 6. Assign delivery to rider and automatically set to picked_up (accepted)
         const { error: assignError } = await supabase
             .from('deliveries')
             .update({
                 rider_id: riderId,
                 rider_name: riderName,
-                status: 'assigned',
+                status: 'picked_up', // Automatically set to picked_up when rider accepts
             })
             .eq('id', deliveryRequest.delivery_id);
 

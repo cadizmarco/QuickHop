@@ -400,14 +400,16 @@ export default function BusinessDashboard() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge
-                        className={
-                          delivery.status === 'delivered' ? 'bg-success' :
-                            delivery.status === 'in_transit' || delivery.status === 'picked_up' ? 'bg-warning' :
-                              delivery.status === 'assigned' ? 'bg-blue-500' :
-                                'bg-muted'
-                        }
-                      >
-                        {delivery.status === 'pending' ? 'PENDING RIDER ACCEPTANCE' : delivery.status.replace('_', ' ').toUpperCase()}
+                          className={
+                            delivery.status === 'delivered' ? 'bg-success' :
+                             delivery.status === 'in_transit' || delivery.status === 'picked_up' ? 'bg-warning' :
+                               delivery.status === 'assigned' ? 'bg-blue-500' :
+                                 'bg-muted'
+                          }
+                        >
+                          {delivery.status === 'pending' ? 'PENDING RIDER ACCEPTANCE' : 
+                           delivery.status === 'picked_up' ? 'ACCEPTED & PICKED UP' :
+                           delivery.status.replace('_', ' ').toUpperCase()}
                       </Badge>
                       <Button
                         variant="outline"

@@ -65,11 +65,9 @@ export default function RiderDashboard() {
         setLoading(true);
         const delivery = await getActiveDeliveryByRider(user.id);
         setActiveDelivery(delivery);
-
-        if (delivery?.status === 'assigned') {
-          // Auto-update to picked_up when rider views the delivery
-          await updateDeliveryStatus(delivery.id, 'picked_up');
-        }
+        
+        // Note: Delivery is already set to 'picked_up' when rider accepts it
+        // No need to auto-update here anymore
       } catch (error) {
         console.error('Error fetching active delivery:', error);
         toast.error('Failed to load active delivery');

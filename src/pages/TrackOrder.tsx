@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { MapPin, Truck, User, Building2, Search, Phone, Mail, Clock, Package, Navigation } from 'lucide-react';
 import { trackDeliveryByTrackingNumber } from '@/lib/deliveryService';
 import { toast } from 'sonner';
+import { RouteViewer } from '@/components/RouteViewer';
 
 const TrackOrder = () => {
     const [trackingNumber, setTrackingNumber] = useState('');
@@ -187,23 +188,17 @@ const TrackOrder = () => {
                 </div>
 
                 {/* Right Side - Map Area */}
-                <div className="flex-1 bg-white rounded-xl shadow-sm border p-1 relative overflow-hidden min-h-[500px]">
-                    <div className="absolute inset-0 m-1 bg-gray-50 rounded-lg flex items-center justify-center">
-                        {trackingData ? (
-                            <div className="text-center p-6">
-                                <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <Navigation className="w-8 h-8 text-blue-500" />
-                                </div>
-                                <h3 className="text-lg font-semibold mb-2">Live Tracking Map</h3>
-                                <p className="text-sm text-muted-foreground max-w-xs mx-auto mb-6">
-                                    Map visualization would be embedded here showing the route from pickup to drop-off.
-                                </p>
-                                <div className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-sm border text-sm">
-                                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                                    Live Updates Active
-                                </div>
-                            </div>
-                        ) : (
+                <div className="flex-1 bg-white rounded-xl shadow-sm border overflow-hidden min-h-[500px]">
+                    {trackingData ? (
+                        <div className="h-full">
+                            <RouteViewer
+                                startLocation={trackingData.delivery.pickup_address}
+                                endLocation={trackingData.dropOff.address}
+                                showMap={true}
+                            />
+                        </div>
+                    ) : (
+                        <div className="h-full flex items-center justify-center bg-gray-50">
                             <div className="text-center p-6">
                                 <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                                     <MapPin className="w-8 h-8 text-gray-400" />
@@ -213,8 +208,8 @@ const TrackOrder = () => {
                                     Enter a tracking number to view the delivery route
                                 </p>
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
