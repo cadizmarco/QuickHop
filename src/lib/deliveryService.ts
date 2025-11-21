@@ -349,6 +349,18 @@ export async function markDropOffDelivered(dropOffId: string) {
 
             if (allDelivered) {
                 await updateDeliveryStatus(dropOff.delivery_id, 'delivered');
+                
+                // Get the delivery to find the rider
+                const { data: delivery } = await supabase
+                    .from('deliveries')
+                    .select('rider_id')
+                    .eq('id', dropOff.delivery_id)
+                    .single();
+                
+                // If delivery is complete, make rider available again
+                if (delivery?.rider_id) {
+                    await updateRiderAvailability(delivery.rider_id, true);
+                }
             } else {
                 // Update to in_transit if at least one is delivered
                 await updateDeliveryStatus(dropOff.delivery_id, 'in_transit');

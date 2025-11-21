@@ -7,7 +7,8 @@ import { RouteViewer } from '@/components/RouteViewer';
 import { LogOut, Navigation, MapPin, Clock, CheckCircle2, Circle, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { getActiveDeliveryByRider, markDropOffDelivered, updateDeliveryStatus, subscribeToDropOffs, subscribeToDeliveryRequests, getPendingDeliveryRequests, acceptDeliveryRequest, rejectDeliveryRequest, getRiderAvailability, type DeliveryWithDropOffs } from '@/lib/deliveryService';
+import { getActiveDeliveryByRider, markDropOffDelivered, updateDeliveryStatus, subscribeToDropOffs, subscribeToDeliveryRequests, getPendingDeliveryRequests, acceptDeliveryRequest, rejectDeliveryRequest, getRiderAvailability, updateRiderAvailability, type DeliveryWithDropOffs } from '@/lib/deliveryService';
+import { supabase } from '@/lib/supabase';
 
 export default function RiderDashboard() {
   const { user, logout } = useAuth();
@@ -66,8 +67,24 @@ export default function RiderDashboard() {
         const delivery = await getActiveDeliveryByRider(user.id);
         setActiveDelivery(delivery);
         
-        // Note: Delivery is already set to 'picked_up' when rider accepts it
-        // No need to auto-update here anymore
+        // Update availability based on whether there's an active delivery
+        if (delivery) {
+          // Check if all drop-offs are delivered
+          const allDelivered = delivery.drop_offs.every(d => d.status === 'delivered');
+          if (allDelivered) {
+            // All delivered, make rider available
+            await updateRiderAvailability(user.id, true);
+            setIsAvailable(true);
+          } else {
+            // Has active delivery, make rider busy
+            await updateRiderAvailability(user.id, false);
+            setIsAvailable(false);
+          }
+        } else {
+          // No active delivery, make rider available
+          await updateRiderAvailability(user.id, true);
+          setIsAvailable(true);
+        }
       } catch (error) {
         console.error('Error fetching active delivery:', error);
         toast.error('Failed to load active delivery');
@@ -77,20 +94,53 @@ export default function RiderDashboard() {
     };
 
     fetchActiveDelivery();
+  }, [user?.id]);
 
-    // Subscribe to real-time updates for drop-offs
-    let unsubscribe: (() => void) | null = null;
-    if (activeDelivery?.id) {
-      unsubscribe = subscribeToDropOffs(activeDelivery.id, (payload) => {
-        console.log('Drop-off updated:', payload);
-        fetchActiveDelivery();
-      });
-    }
+  // Subscribe to real-time updates for drop-offs when activeDelivery changes
+  useEffect(() => {
+    if (!user?.id || !activeDelivery?.id) return;
+
+    const unsubscribeDropOffs = subscribeToDropOffs(activeDelivery.id, async (payload) => {
+      console.log('Drop-off updated:', payload);
+      const updatedDelivery = await getActiveDeliveryByRider(user.id);
+      setActiveDelivery(updatedDelivery);
+      
+      // Check if all drop-offs are delivered and update availability
+      if (updatedDelivery?.drop_offs.every(d => d.status === 'delivered')) {
+        await updateRiderAvailability(user.id, true);
+        setIsAvailable(true);
+      }
+    });
+
+    // Also subscribe to delivery status changes
+    const deliveryChannel = supabase
+      .channel(`delivery-${activeDelivery.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'deliveries',
+          filter: `id=eq.${activeDelivery.id}`,
+        },
+        async (payload) => {
+          console.log('Delivery status updated:', payload);
+          // If delivery is marked as delivered, make rider available
+          if (payload.new.status === 'delivered') {
+            await updateRiderAvailability(user.id, true);
+            setIsAvailable(true);
+            const updatedDelivery = await getActiveDeliveryByRider(user.id);
+            setActiveDelivery(updatedDelivery);
+          }
+        }
+      )
+      .subscribe();
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      unsubscribeDropOffs();
+      supabase.removeChannel(deliveryChannel);
     };
-  }, [user?.id, activeDelivery?.id]); // Added activeDelivery.id to dependencies for subscription
+  }, [user?.id, activeDelivery?.id]);
 
   // Fetch delivery requests and subscribe to updates
   useEffect(() => {
@@ -208,19 +258,36 @@ export default function RiderDashboard() {
       setMarkingDelivered(dropOffId);
       await markDropOffDelivered(dropOffId);
 
-      toast.success(
-        <div className="space-y-1">
-          <p className="font-semibold">Drop-off Completed!</p>
-          <p className="text-xs">✅ Package delivered successfully</p>
-          <p className="text-xs">📱 Customer notified</p>
-        </div>,
-        { duration: 3000 }
-      );
-
       // Refresh delivery data
       if (user?.id) {
         const updatedDelivery = await getActiveDeliveryByRider(user.id);
         setActiveDelivery(updatedDelivery);
+
+        // Check if all drop-offs are delivered
+        const allDelivered = updatedDelivery?.drop_offs.every(d => d.status === 'delivered');
+        
+        if (allDelivered) {
+          // All drop-offs delivered - make rider available again
+          await updateRiderAvailability(user.id, true);
+          setIsAvailable(true);
+          
+          toast.success(
+            <div className="space-y-1">
+              <p className="font-semibold">All Deliveries Completed! 🎉</p>
+              <p className="text-xs">✅ You are now available for new deliveries</p>
+            </div>,
+            { duration: 5000 }
+          );
+        } else {
+          toast.success(
+            <div className="space-y-1">
+              <p className="font-semibold">Drop-off Completed!</p>
+              <p className="text-xs">✅ Package delivered successfully</p>
+              <p className="text-xs">📱 Customer notified</p>
+            </div>,
+            { duration: 3000 }
+          );
+        }
       }
     } catch (error: any) {
       console.error('Error marking drop-off as delivered:', error);
@@ -249,6 +316,9 @@ export default function RiderDashboard() {
       // Refresh active delivery and requests
       const updatedDelivery = await getActiveDeliveryByRider(user.id);
       setActiveDelivery(updatedDelivery);
+      
+      // Mark rider as busy
+      await updateRiderAvailability(user.id, false);
       setIsAvailable(false);
 
       // Clear delivery requests since rider is now busy
