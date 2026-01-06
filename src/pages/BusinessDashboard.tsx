@@ -3,14 +3,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogOut, Package, Plus, MapPin, Eye, EyeOff, Navigation, Loader2 } from 'lucide-react';
+import { LogOut, Package, Plus, MapPin, Eye, EyeOff, Navigation, Loader2, CheckCircle2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { RouteViewer } from '@/components/RouteViewer';
 import { toast } from 'sonner';
-import { createDelivery, createDeliveryRequest, getDeliveriesByBusiness, subscribeToDeliveries, type DeliveryWithDropOffs } from '@/lib/deliveryService';
+import { createDelivery, createDeliveryRequest, getDeliveriesByBusiness, subscribeToDeliveries, markDropOffDelivered, type DeliveryWithDropOffs } from '@/lib/deliveryService';
 
 interface DropOffInput {
   id: string;
@@ -30,6 +30,7 @@ export default function BusinessDashboard() {
   const [deliveries, setDeliveries] = useState<DeliveryWithDropOffs[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [markingDropOff, setMarkingDropOff] = useState<string | null>(null);
 
   // New Delivery Form State
   const [pickupAddress, setPickupAddress] = useState('');
@@ -166,6 +167,27 @@ export default function BusinessDashboard() {
       toast.error(error.message || 'Failed to create delivery', { id: toastId });
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleMarkDelivered = async (dropOffId: string) => {
+    if (!user) {
+      toast.error('You must be logged in to update deliveries');
+      return;
+    }
+
+    setMarkingDropOff(dropOffId);
+    try {
+      await markDropOffDelivered(dropOffId);
+      const updatedDeliveries = await getDeliveriesByBusiness(user.id);
+      setDeliveries(updatedDeliveries);
+
+      toast.success('Drop-off marked as delivered');
+    } catch (error: any) {
+      console.error('Error marking drop-off delivered:', error);
+      toast.error(error.message || 'Failed to update drop-off');
+    } finally {
+      setMarkingDropOff(null);
     }
   };
 
@@ -465,9 +487,25 @@ export default function BusinessDashboard() {
                                 <p className="text-xs text-muted-foreground">{dropOff.address}</p>
                                 <p className="text-xs text-muted-foreground">{dropOff.customer_phone}</p>
                               </div>
-                              <Badge variant="outline" className="text-xs">
-                                {dropOff.status}
-                              </Badge>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {dropOff.status}
+                                </Badge>
+                                {dropOff.status !== 'delivered' && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleMarkDelivered(dropOff.id)}
+                                    disabled={markingDropOff === dropOff.id}
+                                  >
+                                    {markingDropOff === dropOff.id ? (
+                                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Marking...</>
+                                    ) : (
+                                      <><CheckCircle2 className="w-4 h-4 mr-2" /> Mark Delivered</>
+                                    )}
+                                  </Button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         ))}

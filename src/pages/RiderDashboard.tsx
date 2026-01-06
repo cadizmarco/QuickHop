@@ -7,7 +7,7 @@ import { RouteViewer } from '@/components/RouteViewer';
 import { LogOut, Navigation, MapPin, Clock, CheckCircle2, Circle, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { getActiveDeliveryByRider, markDropOffDelivered, updateDeliveryStatus, subscribeToDropOffs, subscribeToDeliveryRequests, getPendingDeliveryRequests, acceptDeliveryRequest, rejectDeliveryRequest, getRiderAvailability, updateRiderAvailability, type DeliveryWithDropOffs } from '@/lib/deliveryService';
+import { getActiveDeliveryByRider, subscribeToDropOffs, subscribeToDeliveryRequests, getPendingDeliveryRequests, acceptDeliveryRequest, rejectDeliveryRequest, getRiderAvailability, updateRiderAvailability, type DeliveryWithDropOffs } from '@/lib/deliveryService';
 import { supabase } from '@/lib/supabase';
 
 export default function RiderDashboard() {
@@ -16,7 +16,6 @@ export default function RiderDashboard() {
 
   const [activeDelivery, setActiveDelivery] = useState<DeliveryWithDropOffs | null>(null);
   const [loading, setLoading] = useState(true);
-  const [markingDelivered, setMarkingDelivered] = useState<string | null>(null);
 
   // Queue system state
   const [deliveryRequests, setDeliveryRequests] = useState<any[]>([]);
@@ -252,50 +251,6 @@ export default function RiderDashboard() {
 
   const currentRoute = getCurrentRoute();
   const pendingCount = activeDelivery?.drop_offs.filter(d => d.status === 'pending').length || 0;
-
-  const handleMarkDelivered = async (dropOffId: string, index: number) => {
-    try {
-      setMarkingDelivered(dropOffId);
-      await markDropOffDelivered(dropOffId);
-
-      // Refresh delivery data
-      if (user?.id) {
-        const updatedDelivery = await getActiveDeliveryByRider(user.id);
-        setActiveDelivery(updatedDelivery);
-
-        // Check if all drop-offs are delivered
-        const allDelivered = updatedDelivery?.drop_offs.every(d => d.status === 'delivered');
-        
-        if (allDelivered) {
-          // All drop-offs delivered - make rider available again
-          await updateRiderAvailability(user.id, true);
-          setIsAvailable(true);
-          
-          toast.success(
-            <div className="space-y-1">
-              <p className="font-semibold">All Deliveries Completed! 🎉</p>
-              <p className="text-xs">✅ You are now available for new deliveries</p>
-            </div>,
-            { duration: 5000 }
-          );
-        } else {
-          toast.success(
-            <div className="space-y-1">
-              <p className="font-semibold">Drop-off Completed!</p>
-              <p className="text-xs">✅ Package delivered successfully</p>
-              <p className="text-xs">📱 Customer notified</p>
-            </div>,
-            { duration: 3000 }
-          );
-        }
-      }
-    } catch (error: any) {
-      console.error('Error marking drop-off as delivered:', error);
-      toast.error(error.message || 'Failed to mark as delivered');
-    } finally {
-      setMarkingDelivered(null);
-    }
-  };
 
   const handleAcceptDelivery = async (requestId: string) => {
     if (!user) return;
@@ -565,19 +520,7 @@ export default function RiderDashboard() {
                                   )}
                                 </div>
                               </div>
-                              {!isDelivered && isCurrent && (
-                                <Button
-                                  onClick={() => handleMarkDelivered(stop.id, index)}
-                                  size="sm"
-                                  disabled={!!markingDelivered}
-                                >
-                                  {markingDelivered === stop.id ? (
-                                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Marking...</>
-                                  ) : (
-                                    <><CheckCircle2 className="w-4 h-4 mr-2" /> Mark Delivered</>
-                                  )}
-                                </Button>
-                              )}
+                              {/* Mark delivered moved to business dashboard */}
                             </div>
                           </CardContent>
                         </Card>
