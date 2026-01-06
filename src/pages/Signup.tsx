@@ -25,6 +25,34 @@ export default function Signup({ role }: SignupProps) {
 
     const roleTitle = role === 'rider' ? 'Rider' : 'Business Owner';
 
+    const ensureProfile = async (userId: string) => {
+        // Make sure a profile row exists for the newly created auth user
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('id', userId)
+            .single();
+
+        if (profileError && profileError.code !== 'PGRST116') {
+            throw profileError;
+        }
+
+        if (!profile) {
+            const { error: insertError } = await supabase.from('profiles').insert({
+                id: userId,
+                email: formData.email,
+                name: formData.name,
+                role,
+                phone: formData.phone || null,
+                is_available: role === 'rider' ? true : null,
+            });
+
+            if (insertError) {
+                throw insertError;
+            }
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
@@ -46,25 +74,28 @@ export default function Signup({ role }: SignupProps) {
 
             if (error) throw error;
 
+            if (data.user) {
+                await ensureProfile(data.user.id);
+            }
+
             // For riders and business owners, email is auto-verified via database trigger
             // Wait a moment for the trigger to process, then check for session
-            setTimeout(async () => {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (session) {
-                    toast.success('Account created successfully!');
-                    navigate(role === 'rider' ? '/rider' : '/business');
-                } else if (data.session) {
-                    // Session was already available
-                    toast.success('Account created successfully!');
-                    navigate(role === 'rider' ? '/rider' : '/business');
-                } else {
-                    // Fallback: email confirmation might still be required
-                    toast.success('Account created! Please check your email to confirm your account.', {
-                        duration: 6000,
-                    });
-                    navigate('/login');
-                }
-            }, 500);
+            if (data.session) {
+                toast.success('Account created successfully!');
+                navigate(role === 'rider' ? '/rider' : '/business');
+                return;
+            }
+
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                toast.success('Account created successfully!');
+                navigate(role === 'rider' ? '/rider' : '/business');
+            } else {
+                toast.success('Account created! Please check your email to confirm your account.', {
+                    duration: 6000,
+                });
+                navigate('/login');
+            }
         } catch (error: any) {
             console.error('Signup error:', error);
             toast.error(error.message || 'Failed to create account');
