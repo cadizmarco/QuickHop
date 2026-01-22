@@ -7,7 +7,7 @@ import { RouteViewer } from '@/components/RouteViewer';
 import { LogOut, Navigation, MapPin, Clock, CheckCircle2, Circle, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { getActiveDeliveryByRider, subscribeToDropOffs, subscribeToDeliveryRequests, getPendingDeliveryRequests, acceptDeliveryRequest, rejectDeliveryRequest, getRiderAvailability, updateRiderAvailability, type DeliveryWithDropOffs } from '@/lib/deliveryService';
+import { getActiveDeliveryByRider, subscribeToDropOffs, subscribeToDeliveryRequests, getPendingDeliveryRequests, acceptDeliveryRequest, rejectDeliveryRequest, getRiderAvailability, updateRiderAvailability, estimateFareForAddresses, type DeliveryWithDropOffs } from '@/lib/deliveryService';
 import { supabase } from '@/lib/supabase';
 
 export default function RiderDashboard() {
@@ -19,11 +19,12 @@ export default function RiderDashboard() {
 
   // Queue system state
   const [deliveryRequests, setDeliveryRequests] = useState<any[]>([]);
+  const [fareEstimates, setFareEstimates] = useState<Record<string, { totalFare: number; totalDistanceKm: number }>>({});
   const [isAvailable, setIsAvailable] = useState(true);
   const [acceptingRequest, setAcceptingRequest] = useState<string | null>(null);
   const [rejectingRequest, setRejectingRequest] = useState<string | null>(null);
 
-  const handleLogoutAsync = async () => {
+  const handleLogoutAsync = async () =>  {
     try {
       await logout();
       navigate('/login');
@@ -209,9 +210,40 @@ export default function RiderDashboard() {
     };
   }, [user?.id, isAvailable]);
 
+  // Compute fare estimates whenever new delivery requests arrive
+  useEffect(() => {
+    async function computeEstimates() {
+      const next: Record<string, { totalFare: number; totalDistanceKm: number }> = {};
+      for (const req of deliveryRequests) {
+        const d = req.deliveries;
+        if (!d || !d.pickup_address) continue;
+        const stops = (d.drop_offs || [])
+          .filter((x: any) => !!x?.address)
+          .sort((a: any, b: any) => (a.sequence || 0) - (b.sequence || 0))
+          .map((x: any) => x.address);
+        if (stops.length === 0) continue;
+        try {
+          const { totalFare, totalDistanceKm } = await estimateFareForAddresses(d.pickup_address, stops);
+          next[d.id] = { totalFare, totalDistanceKm };
+        } catch {
+          // Fallback to base fare per stop
+          next[d.id] = { totalFare: 50 * stops.length, totalDistanceKm: 0 };
+        }
+      }
+      setFareEstimates(next);
+    }
+    if (deliveryRequests.length > 0) {
+      computeEstimates();
+    } else {
+      setFareEstimates({});
+    }
+  }, [deliveryRequests]);
+
   // Determine the current route with all remaining waypoints
   const getCurrentRoute = () => {
-    if (!activeDelivery) return null;
+    if (!activeDelivery || !activeDelivery.drop_offs || activeDelivery.drop_offs.length === 0) {
+      return null;
+    }
 
     const pendingDropOffs = activeDelivery.drop_offs.filter(d => d.status === 'pending');
 
@@ -219,8 +251,8 @@ export default function RiderDashboard() {
       // All pending, show complete route from pickup through all drop-offs
       return {
         from: activeDelivery.pickup_address,
-        to: activeDelivery.drop_offs[activeDelivery.drop_offs.length - 1].address,
-        waypoints: activeDelivery.drop_offs.slice(0, -1).map(d => d.address),
+        to: activeDelivery.drop_offs[activeDelivery.drop_offs.length - 1]?.address || '',
+        waypoints: activeDelivery.drop_offs.slice(0, -1).map(d => d.address || ''),
       };
     } else if (pendingDropOffs.length > 0) {
       // Some delivered, show route from current location through remaining drop-offs
@@ -236,21 +268,21 @@ export default function RiderDashboard() {
 
       return {
         from: activeDelivery.drop_offs[lastDeliveredIndex]?.address || activeDelivery.pickup_address,
-        to: remainingDropOffs[remainingDropOffs.length - 1].address,
-        waypoints: remainingDropOffs.slice(0, -1).map(d => d.address),
+        to: remainingDropOffs[remainingDropOffs.length - 1]?.address || '',
+        waypoints: remainingDropOffs.slice(0, -1).map(d => d.address || ''),
       };
     }
 
     // All delivered, show complete route for reference
     return {
       from: activeDelivery.pickup_address,
-      to: activeDelivery.drop_offs[activeDelivery.drop_offs.length - 1].address,
-      waypoints: activeDelivery.drop_offs.slice(0, -1).map(d => d.address),
+      to: activeDelivery.drop_offs[activeDelivery.drop_offs.length - 1]?.address || '',
+      waypoints: activeDelivery.drop_offs.slice(0, -1).map(d => d.address || ''),
     };
   };
 
   const currentRoute = getCurrentRoute();
-  const pendingCount = activeDelivery?.drop_offs.filter(d => d.status === 'pending').length || 0;
+  const pendingCount = activeDelivery?.drop_offs?.filter(d => d.status === 'pending').length || 0;
 
   const handleAcceptDelivery = async (requestId: string) => {
     if (!user) return;
@@ -374,6 +406,12 @@ export default function RiderDashboard() {
                               {/* We'll need to fetch drop-offs count separately or include it in the query */}
                               Multiple stops
                             </span>
+                            {fareEstimates[delivery.id] && (
+                              <span className="flex items-center gap-1 font-semibold text-green-700">
+                                ₱{fareEstimates[delivery.id].totalFare.toFixed(0)} est.
+                                <span className="text-xs text-muted-foreground">({fareEstimates[delivery.id].totalDistanceKm.toFixed(1)} km)</span>
+                              </span>
+                            )}
                             {delivery.scheduled_for && (
                               <span className="flex items-center gap-1">
                                 <Clock className="w-4 h-4" />
