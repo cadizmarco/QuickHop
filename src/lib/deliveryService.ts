@@ -606,7 +606,12 @@ export async function getPendingDeliveryRequests() {
                     business_name,
                     pickup_address,
                     scheduled_for,
-                    notes
+                    notes,
+                    drop_offs (
+                        id,
+                        address,
+                        sequence
+                    )
                 )
             `)
             .eq('status', 'pending_acceptance')
@@ -618,6 +623,89 @@ export async function getPendingDeliveryRequests() {
         console.error('Error fetching pending delivery requests:', error);
         throw error;
     }
+}
+
+/**
+ * Estimate fare for a route using Google Distance Matrix API
+ * Pricing rules:
+ * - Base fare: 50 pesos per segment
+ * - If distance > 3km, add 4 pesos per km (rounded up) for the full km distance
+ */
+// Lazy loader for Google Maps JS API (routes library)
+let mapsScriptPromise: Promise<void> | null = null;
+function ensureGoogleMapsLoaded(apiKey: string): Promise<void> {
+    if (typeof window !== 'undefined' && (window as any).google?.maps) {
+        return Promise.resolve();
+    }
+    if (mapsScriptPromise) return mapsScriptPromise;
+    mapsScriptPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=routes`;
+        script.async = true;
+        script.defer = true;
+        script.onload = () => resolve();
+        script.onerror = (e) => reject(new Error('Failed to load Google Maps JS API'));
+        document.head.appendChild(script);
+    });
+    return mapsScriptPromise;
+}
+
+export async function estimateFareForAddresses(
+    pickupAddress: string,
+    dropOffAddresses: string[]
+) {
+    const apiKey = (import.meta as any)?.env?.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8';
+
+    const segments: { from: string; to: string; distanceKm: number; fare: number }[] = [];
+    const allStops = [pickupAddress, ...dropOffAddresses];
+
+    // Try using Maps JS DirectionsService for accurate legs and to avoid CORS
+    try {
+        await ensureGoogleMapsLoaded(apiKey);
+        const directionsService = new (window as any).google.maps.DirectionsService();
+
+        const waypoints = allStops.slice(1, -1).map(addr => ({ location: addr, stopover: true }));
+        const result = await directionsService.route({
+            origin: allStops[0],
+            destination: allStops[allStops.length - 1],
+            waypoints,
+            travelMode: (window as any).google.maps.TravelMode.DRIVING,
+        });
+
+        const legs = result?.routes?.[0]?.legs || [];
+        for (const leg of legs) {
+            const meters = leg?.distance?.value ?? 0;
+            const km = meters / 1000;
+            const roundedKm = Math.ceil(km);
+            const extra = roundedKm > 3 ? roundedKm * 4 : 0; // per example: 5km => 20 + 50
+            const fare = 50 + extra;
+            segments.push({ from: leg.start_address, to: leg.end_address, distanceKm: km, fare });
+        }
+    } catch (e) {
+        // Fallback to Distance Matrix per segment (may be blocked by CORS)
+        for (let i = 0; i < allStops.length - 1; i++) {
+            const origin = encodeURIComponent(allStops[i]);
+            const destination = encodeURIComponent(allStops[i + 1]);
+            try {
+                const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destination}&mode=driving&units=metric&key=${apiKey}`;
+                const resp = await fetch(url);
+                const json = await resp.json();
+                const element = json?.rows?.[0]?.elements?.[0];
+                const meters = element?.distance?.value ?? 0;
+                const km = meters / 1000;
+                const roundedKm = Math.ceil(km);
+                const extra = roundedKm > 3 ? roundedKm * 4 : 0;
+                const fare = 50 + extra;
+                segments.push({ from: allStops[i], to: allStops[i + 1], distanceKm: km, fare });
+            } catch {
+                segments.push({ from: allStops[i], to: allStops[i + 1], distanceKm: 0, fare: 50 });
+            }
+        }
+    }
+
+    const totalFare = segments.reduce((sum, s) => sum + s.fare, 0);
+    const totalDistanceKm = segments.reduce((sum, s) => sum + s.distanceKm, 0);
+    return { segments, totalFare, totalDistanceKm };
 }
 
 /**
