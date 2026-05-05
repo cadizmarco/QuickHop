@@ -3,7 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogOut, Package, Plus, MapPin, Eye, EyeOff, Navigation, Loader2, CheckCircle2 } from 'lucide-react';
+import { LogOut, Package, Plus, MapPin, Eye, EyeOff, Navigation, Loader2, CheckCircle2, Wand2, AlertTriangle } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,6 +11,11 @@ import { Badge } from '@/components/ui/badge';
 import { RouteViewer } from '@/components/RouteViewer';
 import { toast } from 'sonner';
 import { createDelivery, createDeliveryRequest, getDeliveriesByBusiness, subscribeToDeliveries, markDropOffDelivered, type DeliveryWithDropOffs } from '@/lib/deliveryService';
+import {
+  reorderDropOffsByDistance,
+  formatDistance,
+  type DropOffDistance,
+} from '@/lib/dropOffOptimizer';
 
 interface DropOffInput {
   id: string;
@@ -41,6 +46,12 @@ export default function BusinessDashboard() {
   const [scheduledDate, setScheduledDate] = useState('');
   const [notes, setNotes] = useState('');
   const [showRoutePreview, setShowRoutePreview] = useState(false);
+
+  // Distance Analyzer State
+  const [analyzing, setAnalyzing] = useState(false);
+  const [autoSort, setAutoSort] = useState(true);
+  // Map of drop-off id -> distance info (filled after analysis)
+  const [distanceByDropOff, setDistanceByDropOff] = useState<Record<string, DropOffDistance<DropOffInput>>>({});
 
   // Fetch deliveries on mount
   useEffect(() => {
@@ -86,11 +97,17 @@ export default function BusinessDashboard() {
       customerEmail: '',
       address: ''
     }]);
+    setDistanceByDropOff({});
   };
 
   const removeDropOff = (id: string) => {
     if (dropOffs.length > 1) {
       setDropOffs(dropOffs.filter(d => d.id !== id));
+      setDistanceByDropOff(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     }
   };
 
@@ -98,13 +115,103 @@ export default function BusinessDashboard() {
     setDropOffs(dropOffs.map(d =>
       d.id === id ? { ...d, [field]: value } : d
     ));
+    if (field === 'address') {
+      // Address changed — previous distance measurements are stale.
+      setDistanceByDropOff(prev => {
+        if (!prev[id]) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
   };
 
-  const handlePreviewRoute = () => {
+  /**
+   * Analyze driving distance from pickup to each drop-off and
+   * (optionally) reorder them nearest -> farthest. Returns the
+   * (possibly reordered) drop-offs so callers can chain it with
+   * a submit action without waiting for state to flush.
+   */
+  const analyzeDistances = async (
+    options: { applySort?: boolean; silent?: boolean } = {}
+  ): Promise<DropOffInput[] | null> => {
+    const { applySort = true, silent = false } = options;
+
+    if (!pickupAddress.trim()) {
+      if (!silent) toast.error('Please enter a pickup address first');
+      return null;
+    }
+    const filled = dropOffs.filter(d => d.address.trim());
+    if (filled.length === 0) {
+      if (!silent) toast.error('Please enter at least one drop-off address');
+      return null;
+    }
+    if (filled.length === 1) {
+      // Nothing to reorder — just measure the single stop.
+    }
+
+    setAnalyzing(true);
+    const toastId = silent ? undefined : toast.loading('Analyzing route distances...');
+
+    try {
+      const result = await reorderDropOffsByDistance(pickupAddress, dropOffs);
+
+      const distMap: Record<string, DropOffDistance<DropOffInput>> = {};
+      result.details.forEach(d => {
+        distMap[d.item.id] = d;
+      });
+      setDistanceByDropOff(distMap);
+
+      const errorCount = result.details.filter(d => d.status === 'ERROR').length;
+
+      if (applySort && result.changed) {
+        setDropOffs(result.ordered);
+        if (!silent) {
+          toast.success(
+            <div className="space-y-1">
+              <p className="font-semibold">Drop-offs reordered: nearest → farthest</p>
+              <p className="text-xs">
+                {result.movedCount} stop{result.movedCount > 1 ? 's were' : ' was'} moved.
+                {errorCount > 0 && ` (${errorCount} address could not be measured)`}
+              </p>
+            </div>,
+            { id: toastId, duration: 4000 }
+          );
+        }
+        return result.ordered;
+      }
+
+      if (!silent) {
+        if (result.changed) {
+          toast.message('Order is sub-optimal', {
+            id: toastId,
+            description: `${result.movedCount} stop(s) would move if auto-sorted.`,
+          });
+        } else {
+          toast.success('Drop-offs are already in optimal order', { id: toastId });
+        }
+      }
+      return dropOffs;
+    } catch (error) {
+      console.error('Distance analyzer failed:', error);
+      if (!silent) {
+        const message = error instanceof Error ? error.message : 'Could not analyze distances';
+        toast.error(message, { id: toastId });
+      }
+      return null;
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handlePreviewRoute = async () => {
     if (!pickupAddress || !dropOffs[0].address) {
       toast.error('Please enter at least pickup address and first drop-off location');
       return;
     }
+    // Run a silent analysis so distance badges show up alongside the preview.
+    // Only auto-reorder when the toggle is on.
+    await analyzeDistances({ applySort: autoSort, silent: true });
     setShowRoutePreview(true);
   };
 
@@ -123,7 +230,15 @@ export default function BusinessDashboard() {
     const toastId = toast.loading('Creating delivery...');
 
     try {
-      const validDropOffs = dropOffs.filter(d => d.address && d.customerName);
+      // If auto-sort is on, ensure the order is nearest -> farthest before
+      // we persist the sequence to the database.
+      let workingDropOffs = dropOffs;
+      if (autoSort && dropOffs.filter(d => d.address.trim()).length > 1) {
+        const sorted = await analyzeDistances({ applySort: true, silent: true });
+        if (sorted) workingDropOffs = sorted;
+      }
+
+      const validDropOffs = workingDropOffs.filter(d => d.address && d.customerName);
 
       const newDelivery = await createDelivery(
         user.id,
@@ -158,6 +273,7 @@ export default function BusinessDashboard() {
       setScheduledDate('');
       setNotes('');
       setShowRoutePreview(false);
+      setDistanceByDropOff({});
 
       // Refresh deliveries list
       const updatedDeliveries = await getDeliveriesByBusiness(user.id);
@@ -255,7 +371,10 @@ export default function BusinessDashboard() {
                   <Input
                     placeholder="Enter your business/pickup location (e.g., 123 Business St, Manila)"
                     value={pickupAddress}
-                    onChange={(e) => setPickupAddress(e.target.value)}
+                    onChange={(e) => {
+                      setPickupAddress(e.target.value);
+                      setDistanceByDropOff({});
+                    }}
                   />
                 </div>
 
@@ -265,11 +384,37 @@ export default function BusinessDashboard() {
                     <Navigation className="w-4 h-4 text-secondary" />
                     Drop-off Locations <span className="text-destructive">*</span>
                   </Label>
-                  {dropOffs.map((dropOff, idx) => (
+                  {dropOffs.map((dropOff, idx) => {
+                    const dist = distanceByDropOff[dropOff.id];
+                    const isNearest = idx === 0 && dist?.status === 'OK' && dropOffs.length > 1;
+                    const isFarthest =
+                      idx === dropOffs.length - 1 && dist?.status === 'OK' && dropOffs.length > 1;
+                    return (
                     <Card key={dropOff.id} className="p-4">
                       <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-semibold">Drop-off {idx + 1}</h4>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-sm font-semibold">Drop-off {idx + 1}</h4>
+                            {dist?.status === 'OK' && (
+                              <Badge variant="secondary" className="text-xs font-normal">
+                                <Navigation className="w-3 h-3 mr-1" />
+                                {formatDistance(dist.distanceMeters)}
+                                <span className="ml-1 text-muted-foreground">from pickup</span>
+                              </Badge>
+                            )}
+                            {dist?.status === 'ERROR' && (
+                              <Badge variant="outline" className="text-xs font-normal text-amber-600 border-amber-300">
+                                <AlertTriangle className="w-3 h-3 mr-1" />
+                                Distance unknown
+                              </Badge>
+                            )}
+                            {isNearest && (
+                              <Badge className="bg-emerald-500 hover:bg-emerald-500 text-white text-xs">Nearest</Badge>
+                            )}
+                            {isFarthest && (
+                              <Badge variant="outline" className="text-xs">Farthest</Badge>
+                            )}
+                          </div>
                           {dropOffs.length > 1 && (
                             <Button
                               variant="ghost"
@@ -318,11 +463,36 @@ export default function BusinessDashboard() {
                         </div>
                       </div>
                     </Card>
-                  ))}
-                  <Button variant="outline" size="sm" onClick={addDropOff}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Another Drop-off
-                  </Button>
+                    );
+                  })}
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" size="sm" onClick={addDropOff}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Another Drop-off
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => analyzeDistances({ applySort: true })}
+                      disabled={analyzing || !pickupAddress.trim() || dropOffs.filter(d => d.address.trim()).length < 2}
+                      title="Measure distance from pickup to each stop and reorder nearest → farthest"
+                    >
+                      {analyzing ? (
+                        <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Analyzing...</>
+                      ) : (
+                        <><Wand2 className="w-4 h-4 mr-2" /> Smart Sort: Nearest → Farthest</>
+                      )}
+                    </Button>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground select-none">
+                    <input
+                      type="checkbox"
+                      className="rounded border-border"
+                      checked={autoSort}
+                      onChange={(e) => setAutoSort(e.target.checked)}
+                    />
+                    Auto-sort drop-offs by distance from pickup before submitting
+                  </label>
                 </div>
 
                 {/* Route Preview */}
