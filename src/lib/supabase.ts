@@ -9,17 +9,16 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Create Supabase client
-// Note: persistSession is set to false so users are not remembered after logout or closing the tab
+// Sessions are persisted in localStorage so the user stays logged in across
+// page reloads. Supabase auto-refreshes the JWT in the background so the
+// session does not expire while the app is open.
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-        autoRefreshToken: false, // Disable auto-refresh since we're not persisting sessions
-        persistSession: false, // Don't persist sessions - user must log in each time they open the app
-        detectSessionInUrl: false, // Don't detect sessions in URL to prevent auto-login
-        storage: typeof window !== 'undefined' ? {
-            getItem: () => null, // Always return null - don't read from storage
-            setItem: () => { }, // Do nothing - don't write to storage
-            removeItem: () => { }, // Do nothing - don't remove from storage
-        } : undefined,
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storageKey: 'quickhop-auth',
+        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
     },
 });
 

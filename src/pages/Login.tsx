@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth, UserRole } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,8 +13,27 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login, user, loading } = useAuth();
+  const { login, user, loading, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const roleRoutes: Record<UserRole, string> = {
+    admin: '/admin',
+    customer: '/customer',
+    business: '/business',
+    rider: '/rider',
+  };
+
+  // If a user hits /login while already authenticated (e.g. refresh, or typing
+  // the URL manually), send them to where they were going or to their dashboard.
+  useEffect(() => {
+    if (!loading && isAuthenticated && user) {
+      const fromState = (location.state as { from?: { pathname?: string } } | null)?.from;
+      const target = fromState?.pathname || roleRoutes[user.role];
+      navigate(target, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, isAuthenticated, user]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,9 +49,12 @@ export default function Login() {
       await login(email, password);
       // Don't show success toast here - wait for user to be loaded
       // The navigation will happen automatically through the useEffect below
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Login error:', error);
-      toast.error(error.message || 'Login failed. Please check your credentials.');
+      const e = error as { message?: string; description?: string };
+      toast.error(e?.message || 'Login failed. Please try again.', {
+        description: e?.description,
+      });
       setIsSubmitting(false);
     }
     // Note: Don't set isSubmitting to false here - let it stay true until user is loaded
@@ -43,16 +65,13 @@ export default function Login() {
   // Only redirect when user is loaded AND we're not currently submitting
   useEffect(() => {
     if (user && !loading && isSubmitting) {
-      const routes: Record<UserRole, string> = {
-        admin: '/admin',
-        customer: '/customer',
-        business: '/business',
-        rider: '/rider',
-      };
+      const fromState = (location.state as { from?: { pathname?: string } } | null)?.from;
+      const target = fromState?.pathname || roleRoutes[user.role];
       toast.success(`Welcome back, ${user.name}!`);
-      navigate(routes[user.role]);
+      navigate(target, { replace: true });
       setIsSubmitting(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, loading, isSubmitting, navigate]);
 
   return (

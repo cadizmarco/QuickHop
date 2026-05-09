@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { toFriendlyError } from '@/lib/authErrors';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/PasswordInput';
@@ -96,9 +97,10 @@ export default function Signup({ role }: SignupProps) {
                 });
                 navigate('/login');
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Signup error:', error);
-            toast.error(error.message || 'Failed to create account');
+            const friendly = toFriendlyError(error);
+            toast.error(friendly.message, { description: friendly.description });
         } finally {
             setLoading(false);
         }

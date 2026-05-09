@@ -2,8 +2,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { AuthProvider, useAuth, UserRole } from "./contexts/AuthContext";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -16,27 +16,42 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const ProtectedRoute = ({ children, allowedRole }: { children: React.ReactNode; allowedRole?: string }) => {
-  const { isAuthenticated, user, loading } = useAuth();
+const ROLE_HOME: Record<UserRole, string> = {
+  admin: '/admin',
+  customer: '/customer',
+  business: '/business',
+  rider: '/rider',
+};
 
-  // Show loading state while checking authentication
+const FullPageLoader = () => (
+  <div className="min-h-screen flex items-center justify-center">
+    <div className="text-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+      <p className="text-muted-foreground">Loading...</p>
+    </div>
+  </div>
+);
+
+const ProtectedRoute = ({ children, allowedRole }: { children: React.ReactNode; allowedRole?: UserRole }) => {
+  const { isAuthenticated, user, loading } = useAuth();
+  const location = useLocation();
+
+  // Wait for auth/profile to settle on first load so a valid session is
+  // not prematurely redirected to /login on refresh.
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
+    return <FullPageLoader />;
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    // Remember where the user was trying to go so we can send them back
+    // after a successful login.
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
-  if (allowedRole && user?.role !== allowedRole) {
-    return <Navigate to="/login" replace />;
+  // Logged in but wrong role -> send them to their own dashboard
+  // instead of bouncing to /login (which caused a loop-like UX).
+  if (allowedRole && user && user.role !== allowedRole) {
+    return <Navigate to={ROLE_HOME[user.role]} replace />;
   }
 
   return <>{children}</>;
@@ -47,7 +62,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AuthProvider>
           <Routes>
             <Route path="/" element={<Index />} />
