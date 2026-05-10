@@ -161,15 +161,9 @@ export async function getActiveDeliveryByRider(riderId: string) {
             .in('status', ['assigned', 'picked_up', 'in_transit'])
             .order('created_at', { ascending: false })
             .limit(1)
-            .single();
+            .maybeSingle();
 
-        if (error) {
-            if (error.code === 'PGRST116') {
-                // No rows returned
-                return null;
-            }
-            throw error;
-        }
+        if (error) throw error;
 
         return data as DeliveryWithDropOffs | null;
     } catch (error) {
@@ -194,14 +188,10 @@ export async function trackDeliveryByPhone(phone: string) {
             .in('status', ['pending', 'picked_up', 'in_transit'])
             .order('created_at', { ascending: false })
             .limit(1)
-            .single();
+            .maybeSingle();
 
-        if (dropOffError) {
-            if (dropOffError.code === 'PGRST116') {
-                return null;
-            }
-            throw dropOffError;
-        }
+        if (dropOffError) throw dropOffError;
+        if (!dropOff) return null;
 
         return {
             dropOff,
@@ -237,14 +227,10 @@ export async function trackDeliveryByTrackingNumber(trackingNumber: string) {
                 )
             `)
             .eq('tracking_number', trackingNumber)
-            .single();
+            .maybeSingle();
 
-        if (dropOffError) {
-            if (dropOffError.code === 'PGRST116') {
-                return null;
-            }
-            throw dropOffError;
-        }
+        if (dropOffError) throw dropOffError;
+        if (!dropOff) return null;
 
         return {
             dropOff,
