@@ -217,18 +217,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      // Use scope: 'local' to avoid 403 when the token is already expired.
-      // This clears the local session without requiring a server round-trip.
-      const { error } = await supabase.auth.signOut({ scope: 'local' });
-      if (error && !error.message?.includes('session')) {
-        throw error;
-      }
-    } catch (error: unknown) {
-      console.error('Logout error:', error);
-    } finally {
-      userRef.current = null;
-      setUser(null);
-      fetchingProfileRef.current = null;
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch {
+      // If signOut fails (403, expired token, etc.), manually clear storage
+    }
+    // Always clear local state regardless of server response
+    userRef.current = null;
+    setUser(null);
+    fetchingProfileRef.current = null;
+    // Remove the persisted session from localStorage
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem('quickhop-auth');
     }
   };
 
