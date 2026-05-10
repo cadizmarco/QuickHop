@@ -46,7 +46,7 @@ BEGIN
         SELECT policyname, tablename
         FROM pg_policies
         WHERE schemaname = 'public'
-          AND tablename IN ('deliveries', 'drop_offs', 'delivery_requests', 'rider_delivery_responses')
+          AND tablename IN ('deliveries', 'drop_offs', 'delivery_requests')
     LOOP
         EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', pol.policyname, pol.tablename);
     END LOOP;
@@ -59,7 +59,6 @@ $$;
 ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.drop_offs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.delivery_requests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.rider_delivery_responses ENABLE ROW LEVEL SECURITY;
 
 
 -- ---------- 3. DELIVERIES policies -----------------------------------
@@ -279,33 +278,43 @@ CREATE POLICY "delivery_requests_rider_update"
 
 
 -- ---------- 6. RIDER_DELIVERY_RESPONSES policies ---------------------
+-- Only created if the table exists (it may not have been set up yet)
 
--- Admin: full access
-CREATE POLICY "rider_responses_admin_all"
-    ON public.rider_delivery_responses
-    FOR ALL
-    TO authenticated
-    USING (public.current_user_role() = 'admin')
-    WITH CHECK (public.current_user_role() = 'admin');
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'rider_delivery_responses'
+    ) THEN
+        ALTER TABLE public.rider_delivery_responses ENABLE ROW LEVEL SECURITY;
 
--- Rider: can insert their own responses and see their own
-CREATE POLICY "rider_responses_rider_insert"
-    ON public.rider_delivery_responses
-    FOR INSERT
-    TO authenticated
-    WITH CHECK (
-        public.current_user_role() = 'rider'
-        AND rider_id = auth.uid()
-    );
+        EXECUTE 'CREATE POLICY "rider_responses_admin_all"
+            ON public.rider_delivery_responses
+            FOR ALL
+            TO authenticated
+            USING (public.current_user_role() = ''admin'')
+            WITH CHECK (public.current_user_role() = ''admin'')';
 
-CREATE POLICY "rider_responses_rider_select"
-    ON public.rider_delivery_responses
-    FOR SELECT
-    TO authenticated
-    USING (
-        public.current_user_role() = 'rider'
-        AND rider_id = auth.uid()
-    );
+        EXECUTE 'CREATE POLICY "rider_responses_rider_insert"
+            ON public.rider_delivery_responses
+            FOR INSERT
+            TO authenticated
+            WITH CHECK (
+                public.current_user_role() = ''rider''
+                AND rider_id = auth.uid()
+            )';
+
+        EXECUTE 'CREATE POLICY "rider_responses_rider_select"
+            ON public.rider_delivery_responses
+            FOR SELECT
+            TO authenticated
+            USING (
+                public.current_user_role() = ''rider''
+                AND rider_id = auth.uid()
+            )';
+    END IF;
+END
+$$;
 
 
 -- ---------- 7. Allow anonymous/public SELECT for tracking ------------
