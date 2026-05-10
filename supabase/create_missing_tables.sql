@@ -97,3 +97,31 @@ GRANT EXECUTE ON FUNCTION public.get_earliest_acceptor(uuid) TO authenticated;
 -- ---------- 4. Verify ------------------------------------------------
 -- SELECT * FROM public.rider_delivery_responses LIMIT 5;
 -- SELECT public.get_earliest_acceptor('some-uuid-here');
+
+
+-- ---------- 5. Add missing columns to delivery_requests --------------
+-- The code expects accepted_at and accepted_by_rider_id columns.
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'delivery_requests'
+          AND column_name = 'accepted_at'
+    ) THEN
+        ALTER TABLE public.delivery_requests
+            ADD COLUMN accepted_at timestamptz DEFAULT NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'delivery_requests'
+          AND column_name = 'accepted_by_rider_id'
+    ) THEN
+        ALTER TABLE public.delivery_requests
+            ADD COLUMN accepted_by_rider_id uuid DEFAULT NULL REFERENCES auth.users(id);
+    END IF;
+END
+$$;
