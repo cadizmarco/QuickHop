@@ -257,10 +257,6 @@ CREATE POLICY "delivery_requests_rider_select"
     TO authenticated
     USING (
         public.current_user_role() = 'rider'
-        AND (
-            status = 'pending_acceptance'
-            OR accepted_by_rider_id = auth.uid()
-        )
     );
 
 -- Rider: can update requests (to accept/reject them)
