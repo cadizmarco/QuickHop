@@ -61,6 +61,58 @@ ALTER TABLE public.drop_offs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.delivery_requests ENABLE ROW LEVEL SECURITY;
 
 
+-- ---------- 2b. SECURITY DEFINER helpers to avoid cross-table recursion
+
+-- Check if a delivery belongs to the current user (as business owner)
+CREATE OR REPLACE FUNCTION public.is_own_delivery(delivery_id uuid)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.deliveries
+        WHERE id = delivery_id AND business_id = auth.uid()
+    );
+$$;
+
+-- Check if a delivery is assigned to the current rider
+CREATE OR REPLACE FUNCTION public.is_rider_delivery(delivery_id uuid)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.deliveries
+        WHERE id = delivery_id AND rider_id = auth.uid()
+    );
+$$;
+
+-- Check if a delivery is pending (visible to all riders)
+CREATE OR REPLACE FUNCTION public.is_pending_delivery(delivery_id uuid)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.deliveries
+        WHERE id = delivery_id AND status = 'pending'
+    );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_own_delivery(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_own_delivery(uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.is_rider_delivery(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_rider_delivery(uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.is_pending_delivery(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_pending_delivery(uuid) TO authenticated;
+
+
 -- ---------- 3. DELIVERIES policies -----------------------------------
 
 -- Admin: full access
@@ -118,19 +170,32 @@ CREATE POLICY "deliveries_rider_update"
         AND rider_id = auth.uid()
     );
 
--- Customer: can see deliveries where they have a drop-off (via tracking)
+-- Customer: can see deliveries where they have a drop-off
+-- Uses a SECURITY DEFINER function to avoid cross-table recursion
+CREATE OR REPLACE FUNCTION public.is_customer_delivery(d_id uuid)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.drop_offs do2
+        JOIN public.profiles p ON (p.phone = do2.customer_phone OR p.email = do2.customer_email)
+        WHERE do2.delivery_id = d_id AND p.id = auth.uid()
+    );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_customer_delivery(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_customer_delivery(uuid) TO authenticated;
+
 CREATE POLICY "deliveries_customer_select"
     ON public.deliveries
     FOR SELECT
     TO authenticated
     USING (
         public.current_user_role() = 'customer'
-        AND id IN (
-            SELECT delivery_id FROM public.drop_offs
-            WHERE customer_phone IN (
-                SELECT phone FROM public.profiles WHERE id = auth.uid()
-            )
-        )
+        AND public.is_customer_delivery(id)
     );
 
 
@@ -144,63 +209,49 @@ CREATE POLICY "drop_offs_admin_all"
     USING (public.current_user_role() = 'admin')
     WITH CHECK (public.current_user_role() = 'admin');
 
--- Business: can manage drop-offs for their deliveries
+-- Business: can manage drop-offs for their deliveries (uses helper to avoid recursion)
 CREATE POLICY "drop_offs_business_select"
     ON public.drop_offs
     FOR SELECT
     TO authenticated
-    USING (
-        delivery_id IN (
-            SELECT id FROM public.deliveries WHERE business_id = auth.uid()
-        )
-    );
+    USING (public.is_own_delivery(delivery_id));
 
 CREATE POLICY "drop_offs_business_insert"
     ON public.drop_offs
     FOR INSERT
     TO authenticated
-    WITH CHECK (
-        delivery_id IN (
-            SELECT id FROM public.deliveries WHERE business_id = auth.uid()
-        )
-    );
+    WITH CHECK (public.is_own_delivery(delivery_id));
 
 CREATE POLICY "drop_offs_business_update"
     ON public.drop_offs
     FOR UPDATE
     TO authenticated
-    USING (
-        delivery_id IN (
-            SELECT id FROM public.deliveries WHERE business_id = auth.uid()
-        )
-    );
+    USING (public.is_own_delivery(delivery_id));
 
--- Rider: can see and update drop-offs for deliveries assigned to them
--- or for pending deliveries (so they can see what they're accepting)
+-- Rider: can see drop-offs for deliveries assigned to them or pending
 CREATE POLICY "drop_offs_rider_select"
     ON public.drop_offs
     FOR SELECT
     TO authenticated
     USING (
         public.current_user_role() = 'rider'
-        AND delivery_id IN (
-            SELECT id FROM public.deliveries
-            WHERE rider_id = auth.uid() OR status = 'pending'
+        AND (
+            public.is_rider_delivery(delivery_id)
+            OR public.is_pending_delivery(delivery_id)
         )
     );
 
+-- Rider: can update drop-offs for deliveries assigned to them
 CREATE POLICY "drop_offs_rider_update"
     ON public.drop_offs
     FOR UPDATE
     TO authenticated
     USING (
         public.current_user_role() = 'rider'
-        AND delivery_id IN (
-            SELECT id FROM public.deliveries WHERE rider_id = auth.uid()
-        )
+        AND public.is_rider_delivery(delivery_id)
     );
 
--- Customer: can see their own drop-offs (by phone match or tracking)
+-- Customer: can see their own drop-offs (by phone or email match)
 CREATE POLICY "drop_offs_customer_select"
     ON public.drop_offs
     FOR SELECT
@@ -233,21 +284,13 @@ CREATE POLICY "delivery_requests_business_select"
     ON public.delivery_requests
     FOR SELECT
     TO authenticated
-    USING (
-        delivery_id IN (
-            SELECT id FROM public.deliveries WHERE business_id = auth.uid()
-        )
-    );
+    USING (public.is_own_delivery(delivery_id));
 
 CREATE POLICY "delivery_requests_business_insert"
     ON public.delivery_requests
     FOR INSERT
     TO authenticated
-    WITH CHECK (
-        delivery_id IN (
-            SELECT id FROM public.deliveries WHERE business_id = auth.uid()
-        )
-    );
+    WITH CHECK (public.is_own_delivery(delivery_id));
 
 -- Rider: can see ALL pending requests (so they can accept them)
 -- and requests they've already accepted
