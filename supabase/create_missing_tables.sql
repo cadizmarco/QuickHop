@@ -125,3 +125,15 @@ BEGIN
     END IF;
 END
 $$;
+
+
+-- ---------- 6. Clear stale rider responses from failed accept attempts
+-- If a rider's response was recorded but the delivery_request was never
+-- updated (because accepted_at column was missing), clean up so they
+-- can try again.
+
+DELETE FROM public.rider_delivery_responses
+WHERE delivery_request_id IN (
+    SELECT id FROM public.delivery_requests
+    WHERE status = 'pending_acceptance'
+);
