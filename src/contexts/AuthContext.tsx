@@ -218,14 +218,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     try {
       const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-
+      // Ignore "session missing" errors — session is already gone, which
+      // is the desired end state of a logout.
+      if (error && !error.message?.includes('session')) {
+        throw error;
+      }
+    } catch (error: unknown) {
+      console.error('Logout error:', error);
+      // Even if signOut fails, clear local state so the user isn't stuck
+    } finally {
       userRef.current = null;
       setUser(null);
       fetchingProfileRef.current = null;
-    } catch (error: unknown) {
-      console.error('Logout error:', error);
-      throw toFriendlyError(error);
     }
   };
 
