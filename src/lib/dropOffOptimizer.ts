@@ -49,35 +49,52 @@ async function geocodeAddress(address: string): Promise<LatLng | null> {
         return geocodeCache.get(key) ?? null;
     }
 
+    // Try Nominatim first (free, no key required)
     try {
         const url =
             `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(trimmed)}`;
         const res = await fetch(url, {
             headers: { Accept: 'application/json', 'Accept-Language': 'en' },
         });
-        if (!res.ok) {
-            geocodeCache.set(key, null);
-            return null;
+        if (res.ok) {
+            const data = (await res.json()) as Array<{ lat: string; lon: string }>;
+            if (Array.isArray(data) && data.length > 0) {
+                const result: LatLng = {
+                    lat: parseFloat(data[0].lat),
+                    lng: parseFloat(data[0].lon),
+                };
+                if (!Number.isNaN(result.lat) && !Number.isNaN(result.lng)) {
+                    geocodeCache.set(key, result);
+                    return result;
+                }
+            }
         }
-        const data = (await res.json()) as Array<{ lat: string; lon: string }>;
-        if (!Array.isArray(data) || data.length === 0) {
-            geocodeCache.set(key, null);
-            return null;
-        }
-        const result: LatLng = {
-            lat: parseFloat(data[0].lat),
-            lng: parseFloat(data[0].lon),
-        };
-        if (Number.isNaN(result.lat) || Number.isNaN(result.lng)) {
-            geocodeCache.set(key, null);
-            return null;
-        }
-        geocodeCache.set(key, result);
-        return result;
     } catch {
-        geocodeCache.set(key, null);
-        return null;
+        // Nominatim failed, try fallback below
     }
+
+    // Fallback: Google Maps Geocoding API (works well for Philippine addresses)
+    try {
+        const apiKey = (import.meta as any)?.env?.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8';
+        const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(trimmed)}&key=${apiKey}`;
+        const res = await fetch(url);
+        if (res.ok) {
+            const data = await res.json();
+            if (data.status === 'OK' && data.results?.length > 0) {
+                const loc = data.results[0].geometry?.location;
+                if (loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
+                    const result: LatLng = { lat: loc.lat, lng: loc.lng };
+                    geocodeCache.set(key, result);
+                    return result;
+                }
+            }
+        }
+    } catch {
+        // Both geocoders failed
+    }
+
+    geocodeCache.set(key, null);
+    return null;
 }
 
 /** Great-circle distance in kilometres. */
