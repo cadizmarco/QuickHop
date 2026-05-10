@@ -217,15 +217,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      // Ignore "session missing" errors — session is already gone, which
-      // is the desired end state of a logout.
+      // Use scope: 'local' to avoid 403 when the token is already expired.
+      // This clears the local session without requiring a server round-trip.
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
       if (error && !error.message?.includes('session')) {
         throw error;
       }
     } catch (error: unknown) {
       console.error('Logout error:', error);
-      // Even if signOut fails, clear local state so the user isn't stuck
     } finally {
       userRef.current = null;
       setUser(null);
