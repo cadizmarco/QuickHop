@@ -8,7 +8,7 @@
 
 -- ---------- 1. Create a function to generate simple tracking numbers --
 
-DROP FUNCTION IF EXISTS public.generate_tracking_number();
+DROP FUNCTION IF EXISTS public.generate_tracking_number() CASCADE;
 
 CREATE OR REPLACE FUNCTION public.generate_tracking_number()
 RETURNS TEXT
