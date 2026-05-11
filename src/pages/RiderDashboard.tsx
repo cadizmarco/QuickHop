@@ -16,6 +16,7 @@ export default function RiderDashboard() {
 
   const [activeDelivery, setActiveDelivery] = useState<DeliveryWithDropOffs | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hasAcceptedThisSession, setHasAcceptedThisSession] = useState(false);
 
   // Queue system state
   const [deliveryRequests, setDeliveryRequests] = useState<any[]>([]);
@@ -67,23 +68,21 @@ export default function RiderDashboard() {
         const delivery = await getActiveDeliveryByRider(user.id);
         setActiveDelivery(delivery);
         
-        // Update availability based on whether there's an active delivery
-        if (delivery) {
-          // Check if all drop-offs are delivered
-          const allDelivered = delivery.drop_offs.every(d => d.status === 'delivered');
-          if (allDelivered) {
-            // All delivered, make rider available
+        // Only update availability on initial load, not after accepting
+        if (!hasAcceptedThisSession) {
+          if (delivery) {
+            const allDelivered = delivery.drop_offs.every(d => d.status === 'delivered');
+            if (allDelivered) {
+              await updateRiderAvailability(user.id, true);
+              setIsAvailable(true);
+            } else {
+              await updateRiderAvailability(user.id, false);
+              setIsAvailable(false);
+            }
+          } else {
             await updateRiderAvailability(user.id, true);
             setIsAvailable(true);
-          } else {
-            // Has active delivery, make rider busy
-            await updateRiderAvailability(user.id, false);
-            setIsAvailable(false);
           }
-        } else {
-          // No active delivery, make rider available
-          await updateRiderAvailability(user.id, true);
-          setIsAvailable(true);
         }
       } catch (error) {
         console.error('Error fetching active delivery:', error);
@@ -299,6 +298,10 @@ export default function RiderDashboard() {
         </div>,
         { duration: 3000 }
       );
+
+      // Mark that we accepted in this session to prevent the mount effect
+      // from overriding availability
+      setHasAcceptedThisSession(true);
 
       // Refresh active delivery and requests
       const updatedDelivery = await getActiveDeliveryByRider(user.id);
