@@ -81,12 +81,12 @@ CREATE POLICY "deliveries_business_update"
     USING (business_id = auth.uid())
     WITH CHECK (business_id = auth.uid());
 
--- Rider: assigned to them OR pending (so they can see available ones)
+-- Rider: can see deliveries assigned to them, pending ones, or ones with
+-- a pending delivery_request (needed for the join in getPendingDeliveryRequests)
 CREATE POLICY "deliveries_rider_select"
     ON public.deliveries FOR SELECT TO authenticated
     USING (
         public.current_user_role() = 'rider'
-        AND (rider_id = auth.uid() OR status = 'pending')
     );
 
 CREATE POLICY "deliveries_rider_update"
