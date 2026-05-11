@@ -288,7 +288,7 @@ export default function RiderDashboard() {
 
     setAcceptingRequest(requestId);
     try {
-      await acceptDeliveryRequest(requestId, user.id, user.name);
+      const result = await acceptDeliveryRequest(requestId, user.id, user.name);
 
       toast.success(
         <div className="space-y-1">
@@ -303,16 +303,20 @@ export default function RiderDashboard() {
       // from overriding availability
       setHasAcceptedThisSession(true);
 
-      // Refresh active delivery and requests
-      const updatedDelivery = await getActiveDeliveryByRider(user.id);
-      setActiveDelivery(updatedDelivery);
-      
-      // Mark rider as busy
+      // Mark rider as busy and clear requests immediately
       await updateRiderAvailability(user.id, false);
       setIsAvailable(false);
-
-      // Clear delivery requests since rider is now busy
       setDeliveryRequests([]);
+
+      // Fetch the active delivery with retries (DB may need a moment to propagate)
+      let updatedDelivery: DeliveryWithDropOffs | null = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        updatedDelivery = await getActiveDeliveryByRider(user.id);
+        if (updatedDelivery) break;
+        // Wait before retrying (200ms, 400ms, 600ms, 800ms, 1000ms)
+        await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 200));
+      }
+      setActiveDelivery(updatedDelivery);
     } catch (error: any) {
       console.error('Error accepting delivery:', error);
       if (error.message.includes('already been claimed') || error.message.includes('accepted this delivery first')) {
@@ -458,7 +462,7 @@ export default function RiderDashboard() {
           </div>
         )}
 
-        {loading ? (
+        {loading || acceptingRequest ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
           </div>
