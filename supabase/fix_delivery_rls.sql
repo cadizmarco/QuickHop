@@ -89,10 +89,16 @@ CREATE POLICY "deliveries_rider_select"
         public.current_user_role() = 'rider'
     );
 
+-- Rider: can update deliveries assigned to them OR pending ones (for accepting)
 CREATE POLICY "deliveries_rider_update"
     ON public.deliveries FOR UPDATE TO authenticated
-    USING (public.current_user_role() = 'rider' AND rider_id = auth.uid())
-    WITH CHECK (public.current_user_role() = 'rider' AND rider_id = auth.uid());
+    USING (
+        public.current_user_role() = 'rider'
+        AND (rider_id = auth.uid() OR rider_id IS NULL)
+    )
+    WITH CHECK (
+        public.current_user_role() = 'rider'
+    );
 
 -- Customer: can see deliveries assigned to them or pending
 -- (broad read — app filters by tracking number; no cross-table ref)
