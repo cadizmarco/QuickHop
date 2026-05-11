@@ -45,12 +45,14 @@ END
 $$;
 
 -- Admin: full access
+DROP POLICY IF EXISTS "rider_responses_admin_all" ON public.rider_delivery_responses;
 CREATE POLICY "rider_responses_admin_all"
     ON public.rider_delivery_responses FOR ALL TO authenticated
     USING (public.current_user_role() = 'admin')
     WITH CHECK (public.current_user_role() = 'admin');
 
 -- Rider: can insert their own responses
+DROP POLICY IF EXISTS "rider_responses_rider_insert" ON public.rider_delivery_responses;
 CREATE POLICY "rider_responses_rider_insert"
     ON public.rider_delivery_responses FOR INSERT TO authenticated
     WITH CHECK (
@@ -59,6 +61,7 @@ CREATE POLICY "rider_responses_rider_insert"
     );
 
 -- Rider: can see their own responses
+DROP POLICY IF EXISTS "rider_responses_rider_select" ON public.rider_delivery_responses;
 CREATE POLICY "rider_responses_rider_select"
     ON public.rider_delivery_responses FOR SELECT TO authenticated
     USING (
@@ -67,6 +70,7 @@ CREATE POLICY "rider_responses_rider_select"
     );
 
 -- Business: can see responses for their delivery requests
+DROP POLICY IF EXISTS "rider_responses_business_select" ON public.rider_delivery_responses;
 CREATE POLICY "rider_responses_business_select"
     ON public.rider_delivery_responses FOR SELECT TO authenticated
     USING (public.current_user_role() = 'business');
