@@ -8,6 +8,8 @@
 
 -- ---------- 1. Create a function to generate simple tracking numbers --
 
+DROP FUNCTION IF EXISTS public.generate_tracking_number();
+
 CREATE OR REPLACE FUNCTION public.generate_tracking_number()
 RETURNS TEXT
 LANGUAGE plpgsql
