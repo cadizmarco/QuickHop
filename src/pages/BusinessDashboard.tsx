@@ -656,6 +656,11 @@ export default function BusinessDashboard() {
                                 </p>
                                 <p className="text-xs text-muted-foreground">{dropOff.address}</p>
                                 <p className="text-xs text-muted-foreground">{dropOff.customer_phone}</p>
+                                {dropOff.tracking_number && (
+                                  <p className="text-xs font-mono font-semibold text-primary mt-1">
+                                    📦 {dropOff.tracking_number}
+                                  </p>
+                                )}
                               </div>
                               <div className="flex items-center gap-2">
                                 <Badge variant="outline" className="text-xs">
